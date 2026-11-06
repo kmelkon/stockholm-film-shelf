@@ -7,6 +7,8 @@ const KEY = process.env.TMDB_API_KEY;
 if (!KEY) throw new Error('TMDB_API_KEY missing');
 const API = 'https://api.themoviedb.org/3';
 const CONCURRENCY = 8;
+// Bump when matching improves: cached *misses* from older versions get retried (hits are kept).
+const MATCHER_VERSION = 2;
 const MATCH_THRESHOLD = 0.75; // below this, spot checks were mostly wrong
 
 const dataUrl = new URL('../data/films.json', import.meta.url);
@@ -68,11 +70,41 @@ function similarity(a, b) {
 const dvdYear = (f) => parseInt(String(f.year || '').match(/\d{4}/)?.[0] || '0', 10) || null;
 const isSeries = (f) => f.genre.some((g) => /tv-serie/i.test(g));
 
+// Series volumes: "Miffy 1", "Hedebyborna D. 3.", "Fellini 1."
+const stripVolume = (t) => t.replace(/[\s,]*(d\.|del|vol\.?|volume|säsong|season)?\s*\d+\.?$/i, '').trim();
+
+// All titles the library knows for a record. subTitle often holds the Swedish/English
+// title of foreign films ("Hauru no ugoku shiro" -> "Det levande slottet"), sometimes
+// several separated by " = "; variantTitle often holds the native script (君たちはどう生きるか).
+// Returns [{ q, strong }]: strong = main titles (fuzzy match ok); weak = subtitle-derived
+// (subtitles also hold junk like "in concert", "October 1966"), which must match near-exactly.
+function candidates(f) {
+  const out = [];
+  for (const t of [f.originalTitle, f.title, f.variantTitle].filter(Boolean)) {
+    const clean = cleanTitle(t);
+    out.push({ q: clean, strong: true }, { q: clean.split(/\s[:\-–]\s/)[0], strong: true });
+    // "Miffy 1" -> "Miffy" only makes sense for TV boxes; for films it turns "Alien 3" into "Alien"
+    if (stripVolume(clean) !== clean) out.push({ q: stripVolume(clean), strong: true, tvOnly: true });
+  }
+  for (const part of (f.subTitle || '').split(/\s=\s/).filter((p) => p && !GENERIC_SUB.test(cleanTitle(p)))) {
+    out.push({ q: cleanTitle(part), strong: false }, { q: cleanTitle(`${f.title} ${part}`), strong: false });
+  }
+  const seen = new Set();
+  return out.filter((c) => c.q && c.q.length > 1 && !seen.has(c.q) && seen.add(c.q));
+}
+const WEAK_MIN = 0.9;
+const GENERIC_SUB = /^(in concert|live|live at .*|concert|the movie|the film|collection|.*\bedition|bonus.*|extras?|dvd|\d{4})$/i;
+
 function score(f, r, kind) {
   const titles = kind === 'tv' ? [r.name, r.original_name] : [r.title, r.original_title];
-  const queries = [f.title, f.originalTitle, cleanTitle(f.title), cleanTitle(f.title).split(/\s[:\-–]\s/)[0]];
   let s = 0;
-  for (const q of queries) for (const t of titles) s = Math.max(s, similarity(q, t));
+  for (const { q, strong, tvOnly } of candidates(f)) for (const t of titles) {
+    if (tvOnly && kind !== 'tv') continue;
+    const sim = similarity(q, t);
+    if (strong || sim >= WEAK_MIN) s = Math.max(s, sim);
+  }
+  // native-script titles normalize to nothing above; compare raw
+  if (f.variantTitle && titles.some((t) => t && t.trim().toLowerCase() === f.variantTitle.trim().toLowerCase())) s = Math.max(s, 1);
   if (s === 1) s += 0.2; // exact title beats near-miss sequels ("Basic instinct" vs "Basic Instinct 2")
   const released = parseInt((kind === 'tv' ? r.first_air_date : r.release_date)?.slice(0, 4) || '0', 10);
   const dy = dvdYear(f);
@@ -86,23 +118,25 @@ function score(f, r, kind) {
 }
 
 async function match(f) {
-  const kind = isSeries(f) ? 'tv' : 'movie';
-  const q = cleanTitle(f.originalTitle || f.title);
-  const short = q.split(/\s[:\-–]\s/)[0];
-  const tries = [...new Set([q, short, cleanTitle(f.title)])].filter(Boolean);
+  const tries = candidates(f).map((c) => c.q).slice(0, 8); // cap API calls per title
+  // likely kind first; fall back to the other (library genre tags miss many TV boxes)
+  const kinds = isSeries(f) || /\d+\.?$/.test(f.title) ? ['tv', 'movie'] : ['movie', 'tv'];
   let best = null;
-  for (const query of tries) {
-    for (const lang of ['sv-SE', 'en-US']) {
-      const res = await tmdb(`/search/${kind}`, { query, language: lang, include_adult: 'false' });
-      for (const r of res?.results?.slice(0, 8) ?? []) {
-        const s = score(f, r, kind);
-        if (!best || s > best.s) best = { s, r };
+  outer: for (const kind of kinds) {
+    for (const query of tries) {
+      for (const lang of ['sv-SE', 'en-US']) {
+        const res = await tmdb(`/search/${kind}`, { query, language: lang, include_adult: 'false' });
+        for (const r of res?.results?.slice(0, 8) ?? []) {
+          const s = score(f, r, kind);
+          if (!best || s > best.s) best = { s, r, kind };
+        }
+        if (best?.s >= 1) break outer;
       }
-      if (best?.s >= 1) break;
     }
-    if (best?.s >= 1) break;
+    if (best?.s >= MATCH_THRESHOLD) break;
   }
-  if (!best || best.s < MATCH_THRESHOLD) return { matched: false, kind, bestScore: best?.s ?? 0 };
+  if (!best || best.s < MATCH_THRESHOLD) return { matched: false, bestScore: best?.s ?? 0 };
+  const kind = best.kind;
 
   const d = await tmdb(`/${kind}/${best.r.id}`, { language: 'sv-SE', append_to_response: 'videos', include_video_language: 'sv,en,null' });
   const vids = d?.videos?.results ?? [];
@@ -130,7 +164,8 @@ async function match(f) {
 
 // --- run --------------------------------------------------------------------
 const LIMIT = parseInt(process.env.LIMIT || '0', 10); // dev: only process N uncached titles
-let todo = data.films.filter((f) => !(f.key in cache));
+const stale = (e) => !e || (!(e.matched && e.score >= MATCH_THRESHOLD) && (e.v ?? 1) < MATCHER_VERSION);
+let todo = data.films.filter((f) => stale(cache[f.key]));
 if (LIMIT) todo = todo.sort(() => Math.random() - 0.5).slice(0, LIMIT);
 console.log(`${data.films.length} films, ${todo.length} uncached`);
 let done = 0, failed = 0;
@@ -138,7 +173,7 @@ const queue = [...todo];
 await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
   while (queue.length) {
     const f = queue.shift();
-    try { cache[f.key] = await match(f); }
+    try { cache[f.key] = { ...(await match(f)), v: MATCHER_VERSION }; }
     catch (e) { failed++; console.warn(`${f.key} ${f.title}: ${e.message}`); }
     if (++done % 250 === 0) {
       console.log(`${done}/${todo.length}`);
