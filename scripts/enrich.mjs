@@ -148,6 +148,13 @@ await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
 }));
 await writeFile(cacheUrl, JSON.stringify(cache));
 
+// Health check: many request failures usually means a bad/revoked key or TMDb outage.
+const MAX_FAIL_RATE = 0.05;
+if (todo.length && failed / todo.length > MAX_FAIL_RATE) {
+  console.error(`HEALTH CHECK FAILED: ${failed}/${todo.length} TMDb lookups failed. Not writing data.`);
+  process.exit(1);
+}
+
 for (const f of data.films) f.tmdb = cache[f.key]?.matched && cache[f.key].score >= MATCH_THRESHOLD ? cache[f.key] : null;
 data.enrichedAt = new Date().toISOString();
 await writeFile(dataUrl, JSON.stringify(data));
