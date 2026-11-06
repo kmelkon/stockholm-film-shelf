@@ -1,0 +1,62 @@
+name: Nightly snapshot
+
+on:
+  schedule:
+    - cron: '30 2 * * *' # 02:30 UTC, after library closing
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # TMDb matches are stable; keep them between runs so only new titles hit the API
+      - uses: actions/cache@v4
+        with:
+          path: data/tmdb-cache.json
+          key: tmdb-cache-${{ github.run_id }}
+          restore-keys: tmdb-cache-
+
+      - name: Fetch library catalog
+        run: node scripts/fetch.mjs
+
+      - name: Enrich with TMDb
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: node scripts/enrich.mjs
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site/data
+          cp index.html _site/
+          cp data/films.json _site/data/
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
