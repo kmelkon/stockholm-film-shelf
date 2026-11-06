@@ -1,0 +1,122 @@
+// Snapshot Stockholm library film catalog (DVD/Blu-ray/VHS) + per-branch availability.
+// Usage: node scripts/fetch.mjs  -> writes data/films.json
+//
+// API quirks (unofficial, reverse-engineered 2026-11):
+// - no offset paging; `rows` capped ~900 per request
+// - targetGroup/yearPublished silently ignored; yearPublishedSpan works
+// - so: bisect year ranges until each slice < cap, then branch slices for year-less titles; union by key
+// - large rows + holdings occasionally 502 -> smaller slices + retry
+import { writeFile, mkdir } from 'node:fs/promises';
+
+const EP = 'https://biblioteket.stockholm.se/graphql';
+const CAP = 500; // target slice size
+const HARD_CAP = 900; // API max rows
+const DELAY_MS = 800;
+
+const MEDIA_FIELDS = `key title originalTitle mediaSubTypeDisplay image language languages
+  targetGroup publisher publishedDate genre ean actors
+  holdings { branch { name } nofTotal nofTotalAvailableForLoan reservable }`;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let requests = 0;
+
+async function search(filters, rows, withMedia) {
+  const query = `query s($f: SearchWithFilterInput!) { searchWithFilter(filterQuery: $f) {
+    totalHits
+    availableFilterGroups { name filters { name count } }
+    groupedMedia { mediaTypeEnum ${withMedia ? `mediaList { ${MEDIA_FIELDS} }` : ''} }
+  } }`;
+  let res;
+  for (let attempt = 0; ; attempt++) {
+    await sleep(DELAY_MS * (attempt ? 2 ** attempt * 3 : 1));
+    requests++;
+    res = await fetch(EP, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query, variables: { f: { query: '', rows, mediaType: ['MOVIE'], ...filters } } }),
+    });
+    if (res.ok) break;
+    if (attempt >= 3) throw new Error(`HTTP ${res.status} ${JSON.stringify(filters)}`);
+    console.warn(`  HTTP ${res.status}, retry ${attempt + 1}`);
+  }
+  const json = await res.json();
+  if (json.errors) throw new Error(`${json.errors[0].message} ${JSON.stringify(filters)}`);
+  const d = json.data.searchWithFilter;
+  const movies = d.groupedMedia.find((g) => g.mediaTypeEnum === 'MOVIE');
+  return { total: d.totalHits, groups: d.availableFilterGroups ?? [], list: movies?.mediaList ?? [] };
+}
+
+const byKey = new Map();
+const truncated = [];
+
+async function grab(filters, label) {
+  const probe = await search(filters, 1, false);
+  if (probe.total === 0) return probe;
+  const { list } = await search(filters, Math.min(probe.total, HARD_CAP), true); // single-year slices may exceed CAP
+  for (const m of list) byKey.set(m.key, m);
+  if (probe.total > HARD_CAP) truncated.push({ filters, total: probe.total });
+  console.log(`${label} -> ${list.length}/${probe.total}  unique=${byKey.size}`);
+  return probe;
+}
+
+// Phase A: bisect year ranges until each slice <= CAP (yearPublishedSpan = ["from","to"] strings)
+async function years(from, to) {
+  const filters = { yearPublishedSpan: [String(from), String(to)] };
+  const probe = await search(filters, 1, false);
+  if (probe.total === 0) return;
+  if (probe.total <= CAP || from === to) return grab(filters, `years ${from}-${to}`);
+  const mid = Math.floor((from + to) / 2);
+  await years(from, mid);
+  await years(mid + 1, to);
+}
+
+// Phase B: branch slices catch titles without a year (skip branches over HARD_CAP)
+async function branches() {
+  const { groups } = await search({}, 1, false);
+  const facet = groups.find((g) => g.name === 'Bibliotek')?.filters ?? [];
+  for (const f of facet.filter((f) => f.count > 0)) {
+    if (f.count > HARD_CAP) { console.log(`skip branch ${f.name} (${f.count})`); continue; }
+    await grab({ branch: [f.name] }, `branch ${f.name}`);
+  }
+}
+
+const { total } = await search({}, 1, false);
+const thisYear = new Date().getFullYear();
+await years(1890, thisYear + 1);
+const afterYears = byKey.size;
+await branches();
+console.log(`after years=${afterYears}, after branches=${byKey.size}`);
+
+const films = [...byKey.values()].map((m) => {
+  const holdings = (m.holdings ?? []).map((h) => ({
+    branch: h.branch?.name,
+    total: h.nofTotal,
+    available: h.nofTotalAvailableForLoan,
+    reservable: h.reservable,
+  }));
+  return {
+    key: m.key,
+    title: m.title,
+    originalTitle: m.originalTitle,
+    format: m.mediaSubTypeDisplay,
+    year: m.publishedDate,
+    languages: m.languages ?? (m.language ? [m.language] : []),
+    audience: m.targetGroup,
+    genre: m.genre ?? [],
+    ean: m.ean ?? [],
+    actors: m.actors ?? [],
+    cover: m.image ? `https://biblioteket.stockholm.se${m.image}` : null,
+    url: `https://biblioteket.stockholm.se/titel/${m.key}`,
+    holdings,
+    copies: holdings.reduce((s, h) => s + (h.total ?? 0), 0),
+    availableNow: holdings.reduce((s, h) => s + (h.available ?? 0), 0),
+  };
+});
+
+await mkdir(new URL('../data/', import.meta.url), { recursive: true });
+await writeFile(
+  new URL('../data/films.json', import.meta.url),
+  JSON.stringify({ fetchedAt: new Date().toISOString(), totalHits: total, films }),
+);
+console.log(`\nwrote ${films.length}/${total} films (${((100 * films.length) / total).toFixed(1)}%) in ${requests} requests`);
+if (truncated.length) console.log('truncated slices:', truncated);
