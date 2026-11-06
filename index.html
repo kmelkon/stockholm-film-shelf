@@ -237,7 +237,8 @@ function render() {
 const reset = () => { shown = PAGE; render(); };
 
 fetch('data/films.json').then((r) => r.json()).then((d) => {
-  films = dedupe(d.films);
+  // zero-copy records (withdrawn/lost) can't be borrowed: drop them after merging editions
+  films = dedupe(d.films).filter((f) => f.copies > 0);
   $('stamp').textContent = `${films.length.toLocaleString('sv')} filmer · hämtad ${new Date(d.fetchedAt).toLocaleString('sv')}`;
   fillSelect($('genre'), tally((f) => f.genre));
   fillSelect($('branch'), tally((f) => f.holdings.map((h) => h.branch)).sort((a, b) => a[0].localeCompare(b[0], 'sv')));
