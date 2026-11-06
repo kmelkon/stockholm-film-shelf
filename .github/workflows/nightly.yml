@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '30 2 * * *' # 02:30 UTC, after library closing
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - index.html
+      - scripts/**
+      - .github/workflows/nightly.yml
 
 permissions:
   contents: read
