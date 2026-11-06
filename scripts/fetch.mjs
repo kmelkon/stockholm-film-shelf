@@ -113,6 +113,17 @@ const films = [...byKey.values()].map((m) => {
   };
 });
 
+// Health check: fail loudly (non-zero exit -> failed CI run -> GitHub email) instead of
+// deploying a gutted catalog if the unofficial API changes shape or starts blocking us.
+const MIN_TOTAL = 3000;    // ~7,100 films in 2026-11
+const MIN_COVERAGE = 0.9;  // normally ~98%
+const coverage = total ? films.length / total : 0;
+if (total < MIN_TOTAL || coverage < MIN_COVERAGE) {
+  console.error(`HEALTH CHECK FAILED: ${films.length}/${total} films (${(coverage * 100).toFixed(1)}%), `
+    + `need total >= ${MIN_TOTAL} and coverage >= ${MIN_COVERAGE * 100}%. Not writing data.`);
+  process.exit(1);
+}
+
 await mkdir(new URL('../data/', import.meta.url), { recursive: true });
 await writeFile(
   new URL('../data/films.json', import.meta.url),
