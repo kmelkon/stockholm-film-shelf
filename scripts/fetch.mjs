@@ -13,7 +13,7 @@ const CAP = 500; // target slice size
 const HARD_CAP = 900; // API max rows
 const DELAY_MS = 800;
 
-const MEDIA_FIELDS = `key title originalTitle mediaSubTypeDisplay image language languages
+const MEDIA_FIELDS = `key title originalTitle variantTitle subTitle mediaSubTypeDisplay image language languages
   targetGroup publisher publishedDate genre ean actors
   holdings { branch { name } nofTotal nofTotalAvailableForLoan reservable }`;
 
@@ -98,6 +98,8 @@ const films = [...byKey.values()].map((m) => {
     key: m.key,
     title: m.title,
     originalTitle: m.originalTitle,
+    variantTitle: m.variantTitle,
+    subTitle: m.subTitle,
     format: m.mediaSubTypeDisplay,
     year: m.publishedDate,
     languages: m.languages ?? (m.language ? [m.language] : []),
