@@ -132,6 +132,26 @@ function dedupe(list) {
   });
 }
 
+// One clean genre vocabulary (TMDb's Swedish genres). TMDb genres when matched,
+// otherwise the library's free-text genres ("Komedier (film)", "barnfilm"...) mapped onto it.
+const GENRE_RULES = [
+  [/action/, 'Action'], [/anim/, 'Animerat'], [/dokument/, 'Dokumentär'], [/drama/, 'Drama'],
+  [/famil|barn/, 'Familj'], [/fantasy/, 'Fantasy'], [/histor|biograf/, 'Historisk'],
+  [/komedi|comedy/, 'Komedi'], [/krig|war/, 'Krig'], [/krimi|crime/, 'Kriminal'],
+  [/musik|music|konsert|jazz|blues|soul/, 'Musik'], [/myst/, 'Mystik'], [/romant/, 'Romantik'],
+  [/science|sci-fi/, 'Science fiction'], [/skräck|horror/, 'Skräck'], [/thriller/, 'Thriller'],
+  [/tv-film/, 'TV-film'], [/västern|western/, 'Västern'], [/äventyr|adventure/, 'Äventyr'],
+];
+function genresOf(f) {
+  const src = f.tmdb?.genres?.length ? f.tmdb.genres : f.genre;
+  const out = new Set();
+  for (const g of src) {
+    const l = norm(g);
+    for (const [re, name] of GENRE_RULES) if (re.test(l)) out.add(name);
+  }
+  return [...out];
+}
+
 function fillSelect(el, values) {
   for (const [v, n] of values) el.add(new Option(`${v} (${n})`, v));
 }
@@ -145,7 +165,7 @@ function filtered() {
   const q = norm($('q').value), g = $('genre').value, b = $('branch').value, l = $('lang').value;
   const onlyAvail = $('avail').checked, onlyCovers = $('covers').checked;
   let list = films.filter((f) => {
-    if (g && !f.genre.includes(g)) return false;
+    if (g && !f.genres.includes(g)) return false;
     if (l && !f.languages.includes(l)) return false;
     if (onlyCovers && !coverOf(f)) return false;
     if (b) {
@@ -190,7 +210,7 @@ function card(f) {
   const meta = document.createElement('div'); meta.className = 'meta';
   meta.innerHTML = `<div class="title"></div><div class="sub"></div><div class="rating"></div><div class="avail"></div>`;
   meta.children[0].textContent = f.title;
-  meta.children[1].textContent = [yearOf(f) || null, f.format?.replaceAll('Film, ', ''), f.genre.filter((g) => g !== 'Långfilmer')[0]].filter(Boolean).join(' · ');
+  meta.children[1].textContent = [yearOf(f) || null, f.format?.replaceAll('Film, ', ''), f.genres.includes($('genre').value) ? $('genre').value : f.genres[0]].filter(Boolean).join(' · ');
   if (f.tmdb?.rating) meta.children[2].innerHTML = `★ <b>${f.tmdb.rating.toFixed(1)}</b> (${f.tmdb.votes.toLocaleString('sv')})`;
   else meta.children[2].remove();
   const av = meta.querySelector('.avail');
@@ -240,7 +260,8 @@ fetch('data/films.json').then((r) => r.json()).then((d) => {
   // zero-copy records (withdrawn/lost) can't be borrowed: drop them after merging editions
   films = dedupe(d.films).filter((f) => f.copies > 0);
   $('stamp').textContent = `${films.length.toLocaleString('sv')} filmer · hämtad ${new Date(d.fetchedAt).toLocaleString('sv')}`;
-  fillSelect($('genre'), tally((f) => f.genre));
+  for (const f of films) f.genres = genresOf(f);
+  fillSelect($('genre'), tally((f) => f.genres).sort((a, b) => a[0].localeCompare(b[0], 'sv')));
   fillSelect($('branch'), tally((f) => f.holdings.map((h) => h.branch)).sort((a, b) => a[0].localeCompare(b[0], 'sv')));
   fillSelect($('lang'), tally((f) => f.languages));
   for (const id of ['q', 'genre', 'branch', 'lang', 'sort', 'avail', 'covers'])
