@@ -9,13 +9,13 @@ on:
     paths:
       - index.html
       - fonts/**
+      - img/**
       - scripts/**
       - .github/workflows/nightly.yml
 
+# least privilege: the build job (which handles third-party data + the TMDb secret) can't deploy
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -24,6 +24,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read # configure-pages reads the site config
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +54,7 @@ jobs:
         run: |
           mkdir -p _site/data
           cp index.html _site/
-          cp -r fonts _site/
+          cp -r fonts img _site/
           cp data/films.json _site/data/
 
       - uses: actions/configure-pages@v5
@@ -60,6 +63,9 @@ jobs:
           path: _site
 
   deploy:
+    permissions:
+      pages: write
+      id-token: write
     needs: build
     runs-on: ubuntu-latest
     environment:

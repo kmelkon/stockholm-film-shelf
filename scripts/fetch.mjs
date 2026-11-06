@@ -42,7 +42,8 @@ async function search(filters, rows, withMedia) {
     requests++;
     res = await fetch(EP, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      // identify ourselves so the library's admins can find us instead of just blocking
+      headers: { 'content-type': 'application/json', 'user-agent': 'Filmhyllan/1.0 (+https://github.com/kmelkon/stockholm-film-shelf)' },
       body: JSON.stringify({ query, variables: { f: { query: '', rows, mediaType: ['MOVIE'], ...filters } } }),
     });
     if (res.ok) break;
@@ -117,7 +118,8 @@ const films = [...byKey.values()].map((m) => {
     genre: m.genre ?? [],
     ean: m.ean ?? [],
     actors: actorList(m.actors),
-    cover: m.image ? `https://biblioteket.stockholm.se${m.image}` : null,
+    // only path-relative images: a value like "@evil.com/x" must not change the host
+    cover: /^\/[^/]/.test(m.image ?? '') ? `https://biblioteket.stockholm.se${m.image}` : null,
     url: `https://biblioteket.stockholm.se/titel/${m.key}`,
     holdings,
     copies: holdings.reduce((s, h) => s + (h.total ?? 0), 0),
