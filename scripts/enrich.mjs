@@ -156,7 +156,7 @@ async function match(f) {
     votes: d.vote_count || 0,
     runtime: d.runtime || d.episode_run_time?.[0] || null,
     genres: (d.genres ?? []).map((g) => g.name),
-    poster: d.poster_path ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : null,
+    poster: /^\/[^/]/.test(d.poster_path ?? '') ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : null, // path only, never a host
     overview: overview || null,
     trailer: trailer ? `https://www.youtube.com/watch?v=${trailer.key}` : null,
     ...pickAge(kind, d),
