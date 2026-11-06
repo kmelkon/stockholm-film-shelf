@@ -176,10 +176,6 @@
   .sticker.out { background: var(--red); color: #fff; }
   .out .case img { filter: grayscale(1) brightness(0.45); }
   .rate { position: absolute; z-index: 1; left: 8px; bottom: 8px; font: 400 22px var(--crt); color: var(--yellow); background: rgb(0 0 0 / 0.75); padding: 0 8px; border-radius: 3px; }
-  /* åldersgräns badge, Statens medieråd style: round, colour by age */
-  .age { position: absolute; z-index: 1; right: 8px; bottom: 8px; min-width: 30px; height: 30px; padding: 0 6px; display: grid; place-items: center;
-    border-radius: 15px; font: 400 18px var(--crt); color: var(--night); background: var(--ac); box-shadow: 0 0 0 2px #000, 0 0 10px var(--ac); }
-  .a0 { --ac: var(--green); } .a7 { --ac: var(--yellow); } .a11 { --ac: #ff8a3d; } .a15 { --ac: var(--red); }
   .tape h3 { font: 900 14px/1.2 var(--body); margin: 10px 0 2px; text-transform: uppercase; letter-spacing: 0.02em;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .tape .y { font: 400 18px var(--crt); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -481,7 +477,6 @@ const ICONS = { Skräck: '☠', Komedi: '☺', Drama: '♥', Animerat: '✦', Fa
 let branchSel, langSel, ageSel;
 // Swedish age buckets from enrich.mjs (0 = barntillåten); ageFrom says which country's rating filled it
 const AGE_LABEL = { 0: 'Barntillåten', 7: 'Från 7 år', 11: 'Från 11 år', 15: 'Från 15 år' };
-const AGE_SHORT = { 0: 'BTL', 7: '7', 11: '11', 15: '15' };
 const ageOf = (f) => f.tmdb?.age ?? null;
 const CLEAR = { genre: '', q: '', branch: '', lang: '', age: '', inne: false, covers: false };
 
@@ -531,8 +526,7 @@ function tape(f, i) {
   return `<a class="tape ${a ? '' : 'out'}" href="${esc(f.url)}" data-i="${f.i}" style="animation-delay:${Math.min(i, 12) * 35}ms">
     <div class="case"><span class="lbl">${esc(t)}</span>${src ? `<img loading="lazy" src="${esc(src)}" data-alt="${esc(alt || '')}" alt="" onerror="noCover(this)">` : ''}
       <span class="sticker ${a ? 'in' : 'out'}">${a ? (S.branch ? `${a} INNE` : 'INNE') : 'UTLÅNAD'}</span>
-      ${f.tmdb?.rating ? `<span class="rate">★${f.tmdb.rating.toFixed(1)}</span>` : ''}
-      ${ageOf(f) != null ? `<span class="age a${ageOf(f)}" title="${AGE_LABEL[ageOf(f)]}">${AGE_SHORT[ageOf(f)]}</span>` : ''}</div>
+      ${f.tmdb?.rating ? `<span class="rate">★${f.tmdb.rating.toFixed(1)}</span>` : ''}</div>
     <h3>${esc(t)}</h3><div class="y">${[yearOf(f) || null, formatOf(f)].filter(Boolean).map(esc).join(' · ')}</div></a>`;
 }
 // broken cover: try the other source, then fall back to the blank tape label underneath
