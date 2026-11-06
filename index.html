@@ -98,6 +98,40 @@ const coverOf = (f) => f.cover || f.tmdb?.poster || null;
 // Bayesian average: pull low-vote ratings toward 6.5
 const wr = (f) => f.tmdb?.rating ? (f.tmdb.votes * f.tmdb.rating + 50 * 6.5) / (f.tmdb.votes + 50) : 0;
 
+// The library often has several records for one film (DVD + Blu-ray, re-releases).
+// Merge by TMDb id; unmatched records only when title + year are identical.
+function dedupe(list) {
+  const groups = new Map();
+  for (const f of list) {
+    const k = f.tmdb ? `tmdb:${f.tmdb.kind}:${f.tmdb.id}` : `lib:${norm(f.title).trim()}|${f.year}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(f);
+  }
+  return [...groups.values()].map((eds) => {
+    if (eds.length === 1) return { ...eds[0], editions: eds };
+    eds.sort((a, b) => b.availableNow - a.availableNow || b.copies - a.copies);
+    const byBranch = new Map();
+    for (const e of eds) for (const h of e.holdings) {
+      const m = byBranch.get(h.branch) || { branch: h.branch, total: 0, available: 0, reservable: false };
+      m.total += h.total || 0; m.available += h.available || 0; m.reservable ||= h.reservable;
+      byBranch.set(h.branch, m);
+    }
+    const uniq = (xs) => [...new Set(xs.filter(Boolean))];
+    return {
+      ...eds[0],
+      editions: eds,
+      cover: eds.find((e) => e.cover)?.cover || null,
+      format: uniq(eds.map((e) => e.format)).join(' / '),
+      genre: uniq(eds.flatMap((e) => e.genre)),
+      languages: uniq(eds.flatMap((e) => e.languages)),
+      actors: uniq(eds.flatMap((e) => e.actors)),
+      holdings: [...byBranch.values()],
+      copies: eds.reduce((s, e) => s + e.copies, 0),
+      availableNow: eds.reduce((s, e) => s + e.availableNow, 0),
+    };
+  });
+}
+
 function fillSelect(el, values) {
   for (const [v, n] of values) el.add(new Option(`${v} (${n})`, v));
 }
@@ -156,7 +190,7 @@ function card(f) {
   const meta = document.createElement('div'); meta.className = 'meta';
   meta.innerHTML = `<div class="title"></div><div class="sub"></div><div class="rating"></div><div class="avail"></div>`;
   meta.children[0].textContent = f.title;
-  meta.children[1].textContent = [yearOf(f) || null, f.format?.replace('Film, ', ''), f.genre.filter((g) => g !== 'Långfilmer')[0]].filter(Boolean).join(' · ');
+  meta.children[1].textContent = [yearOf(f) || null, f.format?.replaceAll('Film, ', ''), f.genre.filter((g) => g !== 'Långfilmer')[0]].filter(Boolean).join(' · ');
   if (f.tmdb?.rating) meta.children[2].innerHTML = `★ <b>${f.tmdb.rating.toFixed(1)}</b> (${f.tmdb.votes.toLocaleString('sv')})`;
   else meta.children[2].remove();
   const av = meta.querySelector('.avail');
@@ -175,13 +209,15 @@ function openDetail(f) {
     <div>${src ? `<img src="${esc(src)}" alt="">` : ''}</div>
     <div>
       <h2>${esc(f.title)}</h2>
-      <div class="sub">${esc([yearOf(f) || null, t?.runtime ? `${t.runtime} min` : null, f.format?.replace('Film, ', '')].filter(Boolean).join(' · '))}</div>
+      <div class="sub">${esc([yearOf(f) || null, t?.runtime ? `${t.runtime} min` : null, f.format?.replaceAll('Film, ', '')].filter(Boolean).join(' · '))}</div>
       ${t?.rating ? `<div class="rating">★ <b>${t.rating.toFixed(1)}</b> på TMDb (${t.votes.toLocaleString('sv')} röster)</div>` : ''}
       ${t?.overview ? `<p>${esc(t.overview)}</p>` : ''}
       ${f.actors.length ? `<div class="sub">Med: ${esc(f.actors.slice(0, 5).join(', '))}</div>` : ''}
       <ul>${branches || '<li>Inga exemplar</li>'}</ul>
+      ${f.editions.length > 1 ? `<div class="sub">${f.editions.length} utgåvor, reservera en:</div><ul>${f.editions.map((e) =>
+        `<li><a href="${esc(e.url)}" target="_blank" rel="noopener">${esc([e.format?.replaceAll('Film, ', ''), e.year].filter(Boolean).join(', '))}</a>: ${e.availableNow}/${e.copies} inne</li>`).join('')}</ul>` : ''}
       <div class="actions">
-        <a class="btn primary" href="${esc(f.url)}" target="_blank" rel="noopener">Reservera</a>
+        <a class="btn primary" href="${esc(f.editions[0].url)}" target="_blank" rel="noopener">Reservera${f.editions.length > 1 ? ' (mest inne)' : ''}</a>
         ${t?.trailer ? `<a class="btn" href="${esc(t.trailer)}" target="_blank" rel="noopener">▶ Trailer</a>` : ''}
         ${t ? `<a class="btn" href="https://www.themoviedb.org/${t.kind}/${t.id}" target="_blank" rel="noopener">TMDb</a>` : ''}
         <button class="btn" onclick="this.closest('dialog').close()">Stäng</button>
@@ -201,8 +237,8 @@ function render() {
 const reset = () => { shown = PAGE; render(); };
 
 fetch('data/films.json').then((r) => r.json()).then((d) => {
-  films = d.films;
-  $('stamp').textContent = `${films.length.toLocaleString('sv')} titlar · hämtad ${new Date(d.fetchedAt).toLocaleString('sv')}`;
+  films = dedupe(d.films);
+  $('stamp').textContent = `${films.length.toLocaleString('sv')} filmer · hämtad ${new Date(d.fetchedAt).toLocaleString('sv')}`;
   fillSelect($('genre'), tally((f) => f.genre));
   fillSelect($('branch'), tally((f) => f.holdings.map((h) => h.branch)).sort((a, b) => a[0].localeCompare(b[0], 'sv')));
   fillSelect($('lang'), tally((f) => f.languages));
