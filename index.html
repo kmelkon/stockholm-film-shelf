@@ -130,7 +130,21 @@
   .aisle span { font: 400 20px var(--crt); color: var(--dim); }
   .aisle::after { content: ''; flex: 1; height: 2px; background: linear-gradient(90deg, var(--c, var(--cyan)), transparent); opacity: 0.5; }
   .aisle .more { font: 400 18px var(--crt); color: var(--c); background: none; border: 0; cursor: pointer; order: 3; }
-  .shelf { display: flex; gap: 18px; overflow-x: auto; padding: 18px 4px 30px; scroll-snap-type: x mandatory; scrollbar-width: thin; scrollbar-color: var(--pink) transparent; }
+  /* inline padding gives the hover ring + glow room; scroll-padding stops snap from scrolling into it,
+     negative margin keeps the first tape aligned with the headings */
+  .shelf { display: flex; gap: 18px; overflow-x: auto; padding: 18px 16px 30px; margin: 0 -16px; scroll-padding-inline: 16px; scroll-snap-type: x mandatory; scrollbar-width: thin; scrollbar-color: var(--pink) transparent; }
+  /* shelf arrows: round neon signs, same language as the aisle signs; vertically centred on the case */
+  .shelf-wrap { position: relative; }
+  .nav { position: absolute; z-index: 3; top: calc(18px + 168px * 1.5 / 2); translate: 0 -50%; width: 48px; height: 48px; padding: 0;
+    display: grid; place-items: center; border-radius: 50%; border: 2px solid var(--c); background: rgb(10 6 20 / 0.85); color: var(--c); cursor: pointer;
+    font: 400 18px var(--sign); text-shadow: 0 0 8px var(--c);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--c) 45%, transparent), inset 0 0 12px color-mix(in srgb, var(--c) 25%, transparent), 0 6px 14px rgb(0 0 0 / 0.6);
+    transition: opacity .2s, background .15s, color .15s, box-shadow .15s; }
+  .nav:hover, .nav:focus-visible { background: var(--c); color: var(--night); text-shadow: none; outline: 0;
+    box-shadow: 0 0 26px var(--c), 0 0 60px color-mix(in srgb, var(--c) 40%, transparent); }
+  .nav.prev { left: -20px; } .nav.next { right: -20px; }
+  .nav:disabled { opacity: 0; pointer-events: none; }
+  @media (hover: none) { .nav { display: none; } } /* touch: swiping is natural */
   .board { height: 14px; margin-top: -26px; border-radius: 3px; background: linear-gradient(#5a3a22, #3a2414); box-shadow: 0 12px 20px rgb(0 0 0 / 0.6); }
 
   /* results: wall of tapes with a board under every row */
@@ -218,6 +232,8 @@
     #lang .lcd-pop { left: auto; right: -2px; }
     .inne { grid-column: 1 / -1; justify-content: center; padding: 10px; }
     .tape { width: 132px; }
+    .nav { top: calc(18px + 132px * 1.5 / 2); width: 40px; height: 40px; font-size: 15px; }
+    .nav.prev { left: -8px; } .nav.next { right: -8px; }
     .wall { grid-template-columns: repeat(2, 1fr); }
     .vcr { gap: 12px; }
     .deck { flex-wrap: nowrap; width: 100%; }
@@ -501,8 +517,10 @@ function render() {
       if (!all.length) return '';
       const l = all.sort(s.sort || SORTS[S.sort]).slice(0, SHELF_MAX);
       return `<div class="aisle" style="--c:${s.c}"><h2>${s.t}</h2><span>${all.length} ST</span>${s.g ? `<button class="more" data-g="${esc(s.g)}">HELA GÅNGEN →</button>` : ''}</div>
-        <div class="shelf">${l.map(tape).join('')}</div><div class="board"></div>`;
+        <div class="shelf-wrap" style="--c:${s.c}"><button class="nav prev" aria-label="Bläddra bakåt">◀\uFE0E</button>
+        <div class="shelf">${l.map(tape).join('')}</div><button class="nav next" aria-label="Bläddra framåt">▶\uFE0E</button></div><div class="board"></div>`;
     }).join('') || `<div class="empty"><b>TOMT PÅ HYLLAN</b>Inget inne här just nu.</div>`;
+    main.querySelectorAll('.shelf-wrap').forEach(wireShelf);
     main.querySelectorAll('.more').forEach((b) => b.onclick = () => { set({ genre: b.dataset.g }); $('#signs').scrollIntoView({ behavior: 'smooth' }); });
     return;
   }
@@ -513,6 +531,20 @@ function render() {
       : `<div class="empty"><b>TOMT PÅ HYLLAN</b>Inga band matchar. Ta bort något från kvittot.</div>`);
   $('#moreBtn')?.addEventListener('click', () => { shown += PAGE; const y = scrollY; render(); scrollTo(0, y); });
 }
+
+// Horizontal scroll is awkward with a mouse: arrows page the shelf, and hide at either end.
+function wireShelf(wrap) {
+  const shelf = wrap.querySelector('.shelf'), [prev, next] = wrap.querySelectorAll('.nav');
+  const upd = () => {
+    prev.disabled = shelf.scrollLeft <= 2;
+    next.disabled = shelf.scrollLeft + shelf.clientWidth >= shelf.scrollWidth - 2;
+  };
+  const page = (dir) => shelf.scrollBy({ left: dir * shelf.clientWidth * 0.85, behavior: 'smooth' });
+  prev.onclick = () => page(-1); next.onclick = () => page(1);
+  shelf.addEventListener('scroll', upd, { passive: true });
+  upd();
+}
+addEventListener('resize', () => document.querySelectorAll('.shelf-wrap').forEach((w) => w.querySelector('.shelf').dispatchEvent(new Event('scroll'))));
 
 // --- detail: back of the box -------------------------------------------------------
 function openDetail(f) {
