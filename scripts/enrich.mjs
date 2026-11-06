@@ -138,7 +138,7 @@ async function match(f) {
   if (!best || best.s < MATCH_THRESHOLD) return { matched: false, bestScore: best?.s ?? 0 };
   const kind = best.kind;
 
-  const d = await tmdb(`/${kind}/${best.r.id}`, { language: 'sv-SE', append_to_response: 'videos', include_video_language: 'sv,en,null' });
+  const d = await tmdb(`/${kind}/${best.r.id}`, { language: 'sv-SE', append_to_response: `videos,${AGE_APPEND[kind]}`, include_video_language: 'sv,en,null' });
   const vids = d?.videos?.results ?? [];
   const trailer = vids.find((v) => v.site === 'YouTube' && v.type === 'Trailer' && v.iso_639_1 === 'sv')
     ?? vids.find((v) => v.site === 'YouTube' && v.type === 'Trailer')
@@ -159,8 +159,39 @@ async function match(f) {
     poster: d.poster_path ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : null,
     overview: overview || null,
     trailer: trailer ? `https://www.youtube.com/watch?v=${trailer.key}` : null,
+    ...pickAge(kind, d),
   };
 }
+
+// --- age limit (åldersgräns) ------------------------------------------------------
+// Swedish buckets: 0 = barntillåten, 7, 11, 15. Sweden first, then Nordic neighbours, then US/UK.
+const AGE_ORDER = ['SE', 'DK', 'NO', 'FI', 'US', 'GB'];
+const AGE_CODES = { // letter codes -> age; numeric codes ("7", "K12", "FSK 16") are parsed below
+  SE: { BTL: 0 }, DK: { A: 0 }, NO: { A: 0 }, FI: { S: 0 },
+  US: { G: 0, 'TV-Y': 0, 'TV-G': 0, PG: 7, 'TV-Y7': 7, 'TV-PG': 7, 'PG-13': 11, 'TV-14': 15, R: 15, 'NC-17': 15, 'TV-MA': 15 },
+  GB: { U: 0, PG: 7 },
+};
+// another country's age -> the Swedish bucket that still allows it ("NO 9" isn't OK for a 7-year-old -> 11)
+const bucket = (n) => (n === 0 ? 0 : n <= 7 ? 7 : n <= 11 ? 11 : 15);
+function ageOf(country, cert) {
+  const c = String(cert || '').trim().toUpperCase();
+  if (!c) return null;
+  if (c in (AGE_CODES[country] ?? {})) return AGE_CODES[country][c];
+  const n = c.match(/\d+/)?.[0];
+  return n == null ? null : bucket(parseInt(n, 10));
+}
+// movie: release_dates.results[{iso_3166_1, release_dates[{certification}]}]; tv: content_ratings.results[{iso_3166_1, rating}]
+function pickAge(kind, d) {
+  const by = new Map();
+  if (kind === 'movie') for (const r of d?.release_dates?.results ?? []) by.set(r.iso_3166_1, r.release_dates.map((x) => x.certification));
+  else for (const r of d?.content_ratings?.results ?? []) by.set(r.iso_3166_1, [r.rating]);
+  for (const country of AGE_ORDER) for (const cert of by.get(country) ?? []) {
+    const age = ageOf(country, cert);
+    if (age != null) return { age, ageFrom: country };
+  }
+  return { age: null, ageFrom: null };
+}
+const AGE_APPEND = { movie: 'release_dates', tv: 'content_ratings' };
 
 // --- run --------------------------------------------------------------------
 const LIMIT = parseInt(process.env.LIMIT || '0', 10); // dev: only process N uncached titles
@@ -183,6 +214,21 @@ await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
 }));
 await writeFile(cacheUrl, JSON.stringify(cache));
 
+// Backfill age limits for hits cached before ages existed (one cheap call each, once).
+const noAge = data.films.map((f) => cache[f.key]).filter((e) => e?.matched && !('age' in e));
+const ageQueue = [...new Set(noAge)];
+let ageFailed = 0;
+if (ageQueue.length) console.log(`backfilling age limits for ${ageQueue.length} matches`);
+await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
+  while (ageQueue.length) {
+    const e = ageQueue.shift();
+    try { const path = AGE_APPEND[e.kind]; // standalone endpoint returns { results }; wrap like append_to_response
+      Object.assign(e, pickAge(e.kind, { [path]: await tmdb(`/${e.kind}/${e.id}/${path}`) })); }
+    catch (err) { ageFailed++; } // retried next run: 'age' stays unset
+  }
+}));
+if (noAge.length) await writeFile(cacheUrl, JSON.stringify(cache));
+
 // Health check: many request failures usually means a bad/revoked key or TMDb outage.
 const MAX_FAIL_RATE = 0.05;
 if (todo.length && failed / todo.length > MAX_FAIL_RATE) {
@@ -196,4 +242,5 @@ await writeFile(dataUrl, JSON.stringify(data));
 
 const m = data.films.filter((f) => f.tmdb);
 console.log(`matched ${m.length}/${data.films.length} (${((100 * m.length) / data.films.length).toFixed(1)}%)`
-  + ` | trailers ${m.filter((f) => f.tmdb.trailer).length} | failed ${failed}`);
+  + ` | trailers ${m.filter((f) => f.tmdb.trailer).length} | ages ${m.filter((f) => f.tmdb.age != null).length}`
+  + ` (SE ${m.filter((f) => f.tmdb.ageFrom === 'SE').length}) | failed ${failed} | age failed ${ageFailed}`);
