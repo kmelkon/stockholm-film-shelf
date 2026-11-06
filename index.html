@@ -152,6 +152,26 @@ function genresOf(f) {
   return [...out];
 }
 
+// Per-browser convenience: remember home branch + "Inne nu". Storage may be blocked; page works without it.
+const PREF_KEY = 'filmhyllan.prefs.v1';
+const PREF_IDS = ['branch', 'avail', 'sort'];
+function savePrefs() {
+  try {
+    localStorage.setItem(PREF_KEY, JSON.stringify(Object.fromEntries(
+      PREF_IDS.map((id) => [id, $(id).type === 'checkbox' ? $(id).checked : $(id).value]))));
+  } catch {}
+}
+function restorePrefs() {
+  let p;
+  try { p = JSON.parse(localStorage.getItem(PREF_KEY) || '{}'); } catch { return; }
+  for (const id of PREF_IDS) {
+    if (!(id in p)) continue;
+    const el = $(id);
+    if (el.type === 'checkbox') el.checked = !!p[id];
+    else if ([...el.options].some((o) => o.value === p[id])) el.value = p[id]; // branch may disappear
+  }
+}
+
 function fillSelect(el, values) {
   for (const [v, n] of values) el.add(new Option(`${v} (${n})`, v));
 }
@@ -264,8 +284,10 @@ fetch('data/films.json').then((r) => r.json()).then((d) => {
   fillSelect($('genre'), tally((f) => f.genres).sort((a, b) => a[0].localeCompare(b[0], 'sv')));
   fillSelect($('branch'), tally((f) => f.holdings.map((h) => h.branch)).sort((a, b) => a[0].localeCompare(b[0], 'sv')));
   fillSelect($('lang'), tally((f) => f.languages));
+  restorePrefs();
   for (const id of ['q', 'genre', 'branch', 'lang', 'sort', 'avail', 'covers'])
     $(id).addEventListener(id === 'q' ? 'input' : 'change', reset);
+  for (const id of PREF_IDS) $(id).addEventListener('change', savePrefs);
   $('more').onclick = () => { shown += PAGE; render(); };
   render();
 }).catch((e) => { $('count').innerHTML = `<span class="err">Kunde inte läsa data/films.json. Kör <code>node scripts/fetch.mjs</code> och servera mappen (t.ex. <code>npx serve</code>).</span>`; console.error(e); });
