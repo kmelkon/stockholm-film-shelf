@@ -130,7 +130,9 @@
   .aisle span { font: 400 20px var(--crt); color: var(--dim); }
   .aisle::after { content: ''; flex: 1; height: 2px; background: linear-gradient(90deg, var(--c, var(--cyan)), transparent); opacity: 0.5; }
   .aisle .more { font: 400 18px var(--crt); color: var(--c); background: none; border: 0; cursor: pointer; order: 3; }
-  .shelf { display: flex; gap: 18px; overflow-x: auto; padding: 18px 4px 30px; scroll-snap-type: x mandatory; scrollbar-width: thin; scrollbar-color: var(--pink) transparent; }
+  /* inline padding gives the hover ring + glow room; scroll-padding stops snap from scrolling into it,
+     negative margin keeps the first tape aligned with the headings */
+  .shelf { display: flex; gap: 18px; overflow-x: auto; padding: 18px 16px 30px; margin: 0 -16px; scroll-padding-inline: 16px; scroll-snap-type: x mandatory; scrollbar-width: thin; scrollbar-color: var(--pink) transparent; }
   .board { height: 14px; margin-top: -26px; border-radius: 3px; background: linear-gradient(#5a3a22, #3a2414); box-shadow: 0 12px 20px rgb(0 0 0 / 0.6); }
 
   /* results: wall of tapes with a board under every row */
