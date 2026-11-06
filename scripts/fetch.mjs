@@ -8,6 +8,16 @@
 // - large rows + holdings occasionally 502 -> smaller slices + retry
 import { writeFile, mkdir } from 'node:fs/promises';
 
+// The API returns actors as an array for most records, but ~12% as one free-text string:
+// "James Stewart, John Dall m.fl. ; foto: Joseph Valentine". Normalise to a list of names.
+function actorList(a) {
+  if (Array.isArray(a)) return a;
+  if (!a) return [];
+  return a.split(';')[0] // crew credits ("foto: …", "musik: …") follow the first semicolon
+    .replace(/\s*(m\.\s?fl\.?|med flera)\s*$/i, '')
+    .split(',').map((n) => n.trim()).filter(Boolean);
+}
+
 const EP = 'https://biblioteket.stockholm.se/graphql';
 const CAP = 500; // target slice size
 const HARD_CAP = 900; // API max rows
@@ -106,7 +116,7 @@ const films = [...byKey.values()].map((m) => {
     audience: m.targetGroup,
     genre: m.genre ?? [],
     ean: m.ean ?? [],
-    actors: m.actors ?? [],
+    actors: actorList(m.actors),
     cover: m.image ? `https://biblioteket.stockholm.se${m.image}` : null,
     url: `https://biblioteket.stockholm.se/titel/${m.key}`,
     holdings,

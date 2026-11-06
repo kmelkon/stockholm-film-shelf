@@ -357,7 +357,7 @@ function genresOf(f) {
 // "Alviks bibliotek" -> "Alvik", "Kulturbiblioteket, Kulturhuset" -> "Kulturhuset"
 const SHORT = { 'Kulturbiblioteket, Kulturhuset': 'Kulturhuset', 'Rum för barn, Kulturhuset': 'Rum för barn', 'Bokhotellet, Frihamnen': 'Bokhotellet',
   'Kungsholmens bibliotek Internationella biblioteket': 'Kungsholmen (Internationella)', 'Tellus fritidscenters bibliotek': 'Tellus' };
-const shortBranch = (n) => SHORT[n] || n.replace(/s? bibliotek(et)?$/i, '');
+const shortBranch = (n) => SHORT[n] || (n || 'Okänt bibliotek').replace(/s? bibliotek(et)?$/i, ''); // a few holdings lack a branch
 
 const tally = (fn) => { const m = new Map(); for (const f of films) for (const v of fn(f)) if (v) m.set(v, (m.get(v) || 0) + 1); return [...m]; };
 
@@ -550,7 +550,7 @@ addEventListener('resize', () => document.querySelectorAll('.shelf-wrap').forEac
 function openDetail(f) {
   const t = f.tmdb, [src, alt] = coversOf(f), dlg = $('#dlg');
   const big = src?.replace('/w342/', '/w500/');
-  const hold = f.holdings.slice().sort((a, b) => (b.branch === S.branch) - (a.branch === S.branch) || b.available - a.available || a.branch.localeCompare(b.branch, 'sv'));
+  const hold = f.holdings.slice().sort((a, b) => (b.branch === S.branch) - (a.branch === S.branch) || b.available - a.available || (a.branch || '').localeCompare(b.branch || '', 'sv'));
   const orig = [f.originalTitle, f.title].find((x) => x && norm(x) !== norm(titleOf(f)));
   const best = f.editions[0];
   dlg.innerHTML = `<div class="back">
@@ -588,6 +588,8 @@ document.addEventListener('click', (e) => {
 // --- boot ------------------------------------------------------------------------------
 function boot(d) {
   // zero-copy records (withdrawn/lost) can't be borrowed: drop them after merging editions
+  // older snapshots may carry actors as one free-text string; fetch.mjs normalises new ones
+  for (const f of d.films) if (!Array.isArray(f.actors)) f.actors = f.actors ? String(f.actors).split(';')[0].replace(/\s*(m\.\s?fl\.?|med flera)\s*$/i, '').split(',').map((n) => n.trim()).filter(Boolean) : [];
   films = dedupe(d.films).filter((f) => f.copies > 0);
   films.forEach((f, i) => {
     f.i = i;
