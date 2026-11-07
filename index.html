@@ -114,6 +114,18 @@
   .deck button[aria-pressed=true] i { text-shadow: 0 0 8px var(--yellow); }
   .chk { display: flex; align-items: center; gap: 8px; font: 400 18px var(--crt); color: var(--dim); cursor: pointer; }
   .chk input { accent-color: var(--pink); width: 16px; height: 16px; }
+  .vcr .btn.surprise { margin-left: auto; }
+
+  /* "Överraska mig": a VHS rewind between the click and the pick */
+  .rewind { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; background: rgb(5 3 10 / 0.92); pointer-events: none; overflow: hidden; }
+  .rewind b { font: 400 clamp(40px, 9vw, 96px) var(--crt); color: var(--green); text-shadow: 0 0 12px var(--green); animation: jitter .09s steps(2) infinite; }
+  .rewind::before { content: ''; position: absolute; left: 0; right: 0; height: 18%; background: linear-gradient(transparent, rgb(255 255 255 / 0.12), transparent);
+    animation: track .5s linear infinite; }
+  .rewind::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(to bottom, rgb(255 255 255 / 0.04) 0 2px, transparent 2px 4px); }
+  @keyframes jitter { 50% { transform: translateX(-6px) skewX(-4deg); } }
+  @keyframes track { from { top: 100%; } to { top: -20%; } }
+  .toast { position: fixed; z-index: 70; left: 50%; bottom: 28px; translate: -50% 0; font: 400 22px var(--crt); color: var(--night); background: var(--yellow);
+    padding: 8px 16px; border-radius: 4px; box-shadow: 0 0 20px rgb(255 210 63 / 0.6); animation: pop .25s both; }
 
   /* active filters as a till receipt */
   .receipt { display: none; margin-top: 18px; background: #f4efe2; color: #222; font: 400 19px var(--crt); padding: 10px 16px 14px; border-radius: 2px;
@@ -125,7 +137,8 @@
   .receipt .t { color: #777; margin-right: 4px; }
   .receipt button { background: none; border: 1px dashed #999; padding: 3px 8px; cursor: pointer; font: inherit; color: #222; }
   .receipt button:hover { border-color: #222; background: #fff; }
-  .receipt .clear { margin-left: auto; border-style: solid; }
+  .receipt .share { margin-left: auto; border-style: solid; }
+  .receipt .clear { border-style: solid; }
 
   /* shelves (store front) */
   .aisle { margin: 34px 0 6px; display: flex; align-items: baseline; gap: 14px; }
@@ -261,6 +274,7 @@
     .deck { flex-wrap: nowrap; width: 100%; }
     .deck button { flex: 1; justify-content: center; padding: 9px 6px; font-size: 17px; }
     .deck button i { margin-right: 4px; }
+    .vcr .btn.surprise { font-size: 13px; padding: 10px 12px; gap: 6px; }
     .aisle { flex-wrap: wrap; gap: 4px 12px; }
     .aisle h2 { font-size: 20px; }
     .aisle::after { display: none; }
@@ -297,6 +311,7 @@
       <button data-s="title" aria-pressed="false"><i>⏏</i>A–Ö</button>
     </div>
     <label class="chk"><input type="checkbox" id="covers"> BARA MED OMSLAG</label>
+    <button class="btn surprise" id="surprise" title="Slumpa fram en bra film som är inne (följer dina filter)">⟲ ÖVERRASKA MIG</button>
   </div>
 
   <div class="receipt" id="receipt"></div>
@@ -492,7 +507,7 @@ function set(patch) {
   shown = PAGE;
   if ('genre' in patch && !patch.genre) $('#signs').scrollTo({ left: 0, behavior: 'smooth' });
   if ('branch' in patch || 'inne' in patch || 'sort' in patch) savePrefs();
-  syncControls(); render();
+  syncControls(); render(); writeUrl();
 }
 function syncControls() {
   document.querySelectorAll('.aisle-sign').forEach((b) => b.setAttribute('aria-pressed', b.dataset.g === S.genre));
@@ -566,9 +581,10 @@ function receipt(n) {
   el.classList.toggle('on', items.length > 0);
   if (!items.length) return;
   el.innerHTML = `<div class="row"><span class="t">KVITTO #${String(n).padStart(4, '0')}</span>${items.map(([k, v], i) =>
-    `<button data-i="${i}" title="Ta bort">${k ? k + ': ' : ''}${esc(v.toUpperCase())} ✕</button>`).join('')}<button class="clear" data-clear>RENSA ALLT</button></div>`;
+    `<button data-i="${i}" title="Ta bort">${k ? k + ': ' : ''}${esc(v.toUpperCase())} ✕</button>`).join('')}<button class="share" data-share>DELA LÄNK ↗</button><button class="clear" data-clear>RENSA ALLT</button></div>`;
   el.onclick = (e) => {
     const b = e.target.closest('button'); if (!b) return;
+    if ('share' in b.dataset) return share(location.href, 'Filmhyllan');
     set('clear' in b.dataset ? CLEAR : items[b.dataset.i][2]);
   };
 }
@@ -613,7 +629,7 @@ function wireShelf(wrap) {
 addEventListener('resize', () => document.querySelectorAll('.shelf-wrap').forEach((w) => w.querySelector('.shelf').dispatchEvent(new Event('scroll'))));
 
 // --- detail: back of the box -------------------------------------------------------
-function openDetail(f) {
+function openDetail(f, { random = false } = {}) {
   const t = f.tmdb, [src, alt] = coversOf(f), dlg = $('#dlg');
   const big = src?.replace('/w342/', '/w500/');
   const hold = f.holdings.slice().sort((a, b) => (b.branch === S.branch) - (a.branch === S.branch) || b.available - a.available || (a.branch || '').localeCompare(b.branch || '', 'sv'));
@@ -640,10 +656,72 @@ function openDetail(f) {
         <a class="btn p" href="${esc(best.url)}" target="_blank" rel="noopener">RESERVERA</a>
         ${t?.trailer ? `<a class="btn" href="${esc(t.trailer)}" target="_blank" rel="noopener">▶ TRAILER</a>` : ''}
         ${t ? `<a class="btn d" href="https://www.themoviedb.org/${t.kind}/${t.id}" target="_blank" rel="noopener">TMDB</a>` : ''}
+        <button class="btn d" data-share>DELA</button>
+        ${random ? `<button class="btn y" data-reroll>⟲ EN TILL</button>` : ''}
       </div>
     </div></div>`;
   dlg.querySelector('.x').onclick = () => dlg.close();
-  dlg.showModal();
+  dlg.querySelector('[data-share]').onclick = () => share(filmUrl(f), titleOf(f));
+  const reroll = dlg.querySelector('[data-reroll]');
+  if (reroll) reroll.onclick = () => { dlg.close(); surprise(); };
+  openFilm = f; writeUrl();
+  if (!dlg.open) dlg.showModal();
+}
+$('#dlg').addEventListener('close', () => { openFilm = null; writeUrl(); });
+
+// --- I1: shareable URLs. Filters + open film live in the query string (?genre=Skräck&butik=…&film=8366816) ---
+let openFilm = null;
+const PARAMS = { genre: 'genre', q: 'sok', branch: 'butik', lang: 'sprak', age: 'alder', inne: 'inne', sort: 'sortera', covers: 'omslag' };
+function urlFor(state, film) {
+  const u = new URLSearchParams();
+  for (const [k, p] of Object.entries(PARAMS)) {
+    const v = state[k];
+    if (k === 'sort' ? v !== 'rating' : v) u.set(p, v === true ? '1' : v);
+  }
+  if (film) u.set('film', film.key);
+  const qs = u.toString();
+  return location.pathname + (qs ? `?${qs}` : '') + location.hash;
+}
+const filmUrl = (f) => new URL(urlFor({ sort: 'rating' }, f), location.href).href; // a film link carries no filters
+function writeUrl() { history.replaceState(null, '', urlFor(S, openFilm)); }
+// URL wins over saved prefs, but isn't saved as a pref itself (a shared link shouldn't change your home store)
+function readUrl(valid) {
+  const u = new URLSearchParams(location.search), patch = {};
+  for (const [k, p] of Object.entries(PARAMS)) {
+    if (!u.has(p)) continue;
+    const v = u.get(p);
+    if (k === 'inne' || k === 'covers') patch[k] = v === '1';
+    else if (valid[k] ? valid[k](v) : true) patch[k] = v;
+  }
+  return { patch, film: u.get('film') };
+}
+async function share(url, title) {
+  try {
+    if (navigator.share && matchMedia('(hover: none)').matches) return await navigator.share({ title, url });
+    await navigator.clipboard.writeText(url);
+    toast('LÄNK KOPIERAD ✓');
+  } catch (e) { if (e?.name !== 'AbortError') prompt('Kopiera länken:', url); }
+}
+function toast(msg) {
+  document.querySelector('.toast')?.remove();
+  const t = Object.assign(document.createElement('div'), { className: 'toast', textContent: msg });
+  document.body.append(t); setTimeout(() => t.remove(), 1800);
+}
+
+// --- I2: "Överraska mig": random good film that's on the shelf, within the current filters ---
+const recent = []; // don't repeat the last few picks
+function surprise() {
+  const list = filtered().filter((f) => availAt(f) > 0);
+  const good = list.filter((f) => wr(f) >= 6.8);
+  const pool = (good.length ? good : list).filter((f) => !recent.includes(f)) ;
+  const pickFrom = pool.length ? pool : good.length ? good : list;
+  if (!pickFrom.length) return toast('INGET INNE MED DE FILTREN');
+  const f = pickFrom[Math.floor(Math.random() * pickFrom.length)];
+  recent.push(f); if (recent.length > 15) recent.shift();
+  const fast = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const fx = Object.assign(document.createElement('div'), { className: 'rewind', innerHTML: '<b>◀◀ SPOLAR…</b>' });
+  if (!fast) document.body.append(fx);
+  setTimeout(() => { fx.remove(); openDetail(f, { random: true }); }, fast ? 0 : 900);
 }
 $('#dlg').onclick = (e) => { if (e.target.id === 'dlg') e.target.close(); };
 
@@ -716,9 +794,20 @@ function boot(d) {
   $('#sort').onclick = (e) => { const b = e.target.closest('button'); if (b) set({ sort: b.dataset.s }); };
   $('#home').onclick = () => set({ ...CLEAR, branch: S.branch, inne: S.inne }); // keep standing prefs
 
-  loadPrefs(new Set(branches.map(([b]) => b)));
+  $('#surprise').onclick = surprise;
+
+  const branchSet = new Set(branches.map(([b]) => b));
+  loadPrefs(branchSet);
+  const { patch, film } = readUrl({
+    branch: (v) => branchSet.has(v), sort: (v) => v in SORTS, age: (v) => v in AGE_LABEL,
+    genre: (v) => genres.some(([g]) => g === v), lang: (v) => films.some((f) => f.languages.includes(v)),
+  });
+  Object.assign(S, patch);
+  if (S.q) $('#q').value = S.q;
   syncControls();
   render();
+  const f = film && films.find((x) => x.editions.some((e) => e.key === film));
+  if (f) openDetail(f); else writeUrl();
 }
 
 fetch('data/films.json').then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(boot).catch((e) => {
