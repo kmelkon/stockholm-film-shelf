@@ -68,7 +68,50 @@ function similarity(a, b) {
 }
 
 const dvdYear = (f) => parseInt(String(f.year || '').match(/\d{4}/)?.[0] || '0', 10) || null;
-const isSeries = (f) => f.genre.some((g) => /tv-serie/i.test(g));
+const isSeries = (f) => f.series || f.genre.some((g) => /tv-serie/i.test(g));
+
+// Manual fixes for bad matches. library key -> TMDb movie id, { tv: id }, or null = no match.
+// Films paired with an unrelated series ("Alien 3" -> "Alien Nine", "Paris" -> a 1994 sitcom),
+// concerts/operas paired with series, and series paired with the wrong show.
+// A cached entry that disagrees is redone on the next run.
+const OVERRIDES = {
+  8404172: 8077, // Alien 3
+  8095038: 82283, // "It" (1927 comedy)
+  8531546: 3019, // Dr. Jekyll and Mr. Hyde 1932 & 1941 (box holds both; 1931 film)
+  8331891: 11190, // Vozvrasjtjenije (The Return)
+  8095035: 513, // Fire (Deepa Mehta)
+  8136431: 8355, // Ice Age 3
+  8224313: 12430, // Vegas (Amir Naderi)
+  8369901: 8279, // Paris (Klapisch)
+  8059354: 78182, // Jelena (Elena, Zvyagintsev)
+  8102880: 309373, // Super troupers (ABBA)
+  8059643: null, // 40
+  8246354: null, // Slas klassiska filmer
+  8287451: null, // Mar
+  8149327: null, // Raz
+  8354660: null, // Utubus-i shab (The Night Bus)
+  8346003: null, // Evolve
+  8127030: null, // Zoombie
+  8330354: null, // Xerxes (opera, London Coliseum)
+  8146773: null, // Xerxes (opera, Semperoper Dresden)
+  8325814: null, // Dixieland jazz Vol. 1 (concert compilation)
+  8338758: null, // America (concert film)
+  8326763: null, // Bold as brass (Cliff Richard concert)
+  8067940: { tv: 3714 }, // Pippi Langstrump 1969 (not the 1997 cartoon)
+  8061503: { tv: 3714 },
+  8068487: { tv: 3714 },
+  8162223: { tv: 3714 },
+  8100525: { tv: 152643 }, // Partaj (SVT 1969)
+  8320932: { tv: 15571 }, // Holocaust (1978)
+  8358600: { tv: 218433 }, // The Vietnam war (CBS, Walter Cronkite)
+};
+const hasOverride = (f) => Object.hasOwn(OVERRIDES, f.key);
+const overrideOf = (f) => { const o = OVERRIDES[f.key]; return o === null ? null : typeof o === 'number' ? { kind: 'movie', id: o } : { kind: 'tv', id: o.tv }; };
+const overrideOk = (f, e) => {
+  if (!hasOverride(f)) return true;
+  const o = overrideOf(f);
+  return o === null ? e?.matched === false : e?.kind === o.kind && e?.id === o.id;
+};
 
 // Series volumes: "Miffy 1", "Hedebyborna D. 3.", "Fellini 1."
 const stripVolume = (t) => t.replace(/[\s,]*(d\.|del|vol\.?|volume|säsong|season)?\s*\d+\.?$/i, '').trim();
@@ -122,7 +165,12 @@ async function match(f) {
   // likely kind first; fall back to the other (library genre tags miss many TV boxes)
   const kinds = isSeries(f) || /\d+\.?$/.test(f.title) ? ['tv', 'movie'] : ['movie', 'tv'];
   let best = null;
-  outer: for (const kind of kinds) {
+  if (hasOverride(f)) {
+    if (OVERRIDES[f.key] === null) return { matched: false, bestScore: 0, manual: true };
+    const o = overrideOf(f);
+    best = { s: 1.2, r: { id: o.id }, kind: o.kind };
+  }
+  if (!best) outer: for (const kind of kinds) {
     for (const query of tries) {
       for (const lang of ['sv-SE', 'en-US']) {
         const res = await tmdb(`/search/${kind}`, { query, language: lang, include_adult: 'false' });
@@ -196,7 +244,9 @@ const AGE_APPEND = { movie: 'release_dates', tv: 'content_ratings' };
 // --- run --------------------------------------------------------------------
 const LIMIT = parseInt(process.env.LIMIT || '0', 10); // dev: only process N uncached titles
 const stale = (e) => !e || (!(e.matched && e.score >= MATCH_THRESHOLD) && (e.v ?? 1) < MATCHER_VERSION);
-let todo = data.films.filter((f) => stale(cache[f.key]));
+// library says TV but we matched a film: retry once with TV searched first (seriesChecked stops nightly repeats)
+const recheck = (f, e) => f.series && e?.kind === 'movie' && !e.seriesChecked && !hasOverride(f);
+let todo = data.films.filter((f) => stale(cache[f.key]) || !overrideOk(f, cache[f.key]) || recheck(f, cache[f.key]));
 if (LIMIT) todo = todo.sort(() => Math.random() - 0.5).slice(0, LIMIT);
 console.log(`${data.films.length} films, ${todo.length} uncached`);
 let done = 0, failed = 0;
@@ -204,7 +254,7 @@ const queue = [...todo];
 await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
   while (queue.length) {
     const f = queue.shift();
-    try { cache[f.key] = { ...(await match(f)), v: MATCHER_VERSION }; }
+    try { cache[f.key] = { ...(await match(f)), v: MATCHER_VERSION, ...(f.series && { seriesChecked: true }) }; }
     catch (e) { failed++; console.warn(`${f.key} ${f.title}: ${e.message}`); }
     if (++done % 250 === 0) {
       console.log(`${done}/${todo.length}`);
