@@ -18,13 +18,19 @@ function actorList(a) {
     .split(',').map((n) => n.trim()).filter(Boolean);
 }
 
+// The library's own word that a box is TV: "Originalfilmen (TV-serie): SVT, 1997" in notes
+// (spelling varies: "Originalfilmerna: (TV-serie)", "Originalfilmen TV-serie:"), or the title/subtitle says so.
+// "Bygger på en TV-serie" (a film based on a show) must not count.
+const isSeries = (m) => (m.notes ?? []).some((n) => /originalfilm\w*[\s:(]*tv-serie/i.test(n))
+  || /\btv-serien\b/i.test(m.title ?? '') || /\bmini-?series?\b/i.test(m.subTitle ?? '');
+
 const EP = 'https://biblioteket.stockholm.se/graphql';
 const CAP = 500; // target slice size
 const HARD_CAP = 900; // API max rows
 const DELAY_MS = 800;
 
 const MEDIA_FIELDS = `key title originalTitle variantTitle subTitle mediaSubTypeDisplay image language languages
-  targetGroup publisher publishedDate genre ean actors
+  targetGroup publisher publishedDate genre ean actors notes
   holdings { branch { name } nofTotal nofTotalAvailableForLoan reservable }`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -118,6 +124,7 @@ const films = [...byKey.values()].map((m) => {
     genre: m.genre ?? [],
     ean: m.ean ?? [],
     actors: actorList(m.actors),
+    series: isSeries(m),
     // only path-relative images: a value like "@evil.com/x" must not change the host
     cover: /^\/[^/]/.test(m.image ?? '') ? `https://biblioteket.stockholm.se${m.image}` : null,
     url: `https://biblioteket.stockholm.se/titel/${m.key}`,

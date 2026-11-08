@@ -450,6 +450,7 @@ function dedupe(list) {
       cover: eds.find((e) => e.cover)?.cover || null,
       format: uniq(eds.map((e) => e.format)).join(' / '),
       genre: uniq(eds.flatMap((e) => e.genre)),
+      series: eds.some((e) => e.series),
       languages: uniq(eds.flatMap((e) => e.languages)),
       actors: uniq(eds.flatMap((e) => e.actors)),
       holdings: [...byBranch.values()],
@@ -477,7 +478,7 @@ function genresOf(f) {
     for (const [re, name] of GENRE_RULES) if (re.test(l)) out.add(name);
   }
   // TV boxes get their own aisle: TMDb says series, or the library tags it "TV-serier"
-  if (f.tmdb?.kind === 'tv' || f.genre.some((g) => /tv-serie/i.test(g))) out.add('TV-serier');
+  if (f.series || f.tmdb?.kind === 'tv' || f.genre.some((g) => /tv-serie/i.test(g))) out.add('TV-serier');
   return [...out];
 }
 
