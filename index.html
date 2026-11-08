@@ -6,6 +6,11 @@
 <!-- image hosts and outbound links don't learn which site sent the visitor -->
 <meta name="referrer" content="no-referrer">
 <title>Filmhyllan</title>
+<link rel="icon" href="img/icon.svg" type="image/svg+xml">
+<link rel="icon" href="img/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0a0614">
 <!-- fonts are self-hosted so no visitor IPs go to Google (see Integritet) -->
 <link rel="stylesheet" href="fonts/fonts.css">
 <style>
@@ -160,6 +165,9 @@
     box-shadow: 0 0 26px var(--c), 0 0 60px color-mix(in srgb, var(--c) 40%, transparent); }
   .nav.prev { left: -20px; } .nav.next { right: -20px; }
   .nav:disabled { opacity: 0; pointer-events: none; }
+  /* genre row reuses the shelf arrows, centred on the hanging signs */
+  .signs-wrap .nav { top: calc(26px + 22px); width: 40px; height: 40px; font-size: 15px; }
+  .signs-wrap .nav.prev { left: -14px; } .signs-wrap .nav.next { right: -14px; }
   @media (hover: none) { .nav { display: none; } } /* touch: swiping is natural */
   .board { height: 14px; margin-top: -26px; border-radius: 3px; background: linear-gradient(#5a3a22, #3a2414); box-shadow: 0 12px 20px rgb(0 0 0 / 0.6); }
 
@@ -293,7 +301,8 @@
     <div class="open" id="open">STARTAR…</div>
   </header>
 
-  <nav class="signs" id="signs" aria-label="Genrer"></nav>
+  <div class="shelf-wrap signs-wrap" style="--c:var(--pink)"><button class="nav prev" aria-label="Fler genrer bakåt">◀&#xFE0E;</button>
+    <nav class="signs" id="signs" aria-label="Genrer"></nav><button class="nav next" aria-label="Fler genrer framåt">▶&#xFE0E;</button></div>
 
   <div class="counter">
     <div class="field"><label for="q">SÖK TITEL / SKÅDIS</label><input id="q" type="search" placeholder="> _" autocomplete="off"></div>
@@ -351,6 +360,7 @@
         <li>Dina val (bibliotek, ”inne nu”, sortering) sparas bara i din egen webbläsare och skickas aldrig någonstans.</li>
         <li>Typsnitten ligger på sidan själv. Omslag laddas från TMDb och bibliotekets server, som då ser din IP-adress precis som vid all bildladdning på webben. Trailers öppnas på YouTube först när du klickar.</li>
         <li>Sidan ligger på GitHub Pages, som kan logga IP-adresser av säkerhetsskäl (<a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">GitHubs integritetspolicy</a>).</li>
+        <li>Sidan och filmlistan sparas i webbläsarens cache så att den går att öppna offline och kan installeras som app. Inget av det lämnar din enhet.</li>
         <li>Sidan skickar ingen ”referrer”: bildservrar och länkar du klickar på får inte veta att du kom härifrån.</li>
         <li class="fb-note" hidden>Feedbackformuläret sparar bara det du själv skriver.</li>
       </ul>
@@ -616,7 +626,7 @@ function render() {
 
 // Horizontal scroll is awkward with a mouse: arrows page the shelf, and hide at either end.
 function wireShelf(wrap) {
-  const shelf = wrap.querySelector('.shelf'), [prev, next] = wrap.querySelectorAll('.nav');
+  const shelf = wrap.querySelector('.shelf, .signs'), [prev, next] = wrap.querySelectorAll('.nav');
   const upd = () => {
     prev.disabled = shelf.scrollLeft <= 2;
     next.disabled = shelf.scrollLeft + shelf.clientWidth >= shelf.scrollWidth - 2;
@@ -626,7 +636,7 @@ function wireShelf(wrap) {
   shelf.addEventListener('scroll', upd, { passive: true });
   upd();
 }
-addEventListener('resize', () => document.querySelectorAll('.shelf-wrap').forEach((w) => w.querySelector('.shelf').dispatchEvent(new Event('scroll'))));
+addEventListener('resize', () => document.querySelectorAll('.shelf-wrap').forEach((w) => w.querySelector('.shelf, .signs').dispatchEvent(new Event('scroll'))));
 
 // --- detail: back of the box -------------------------------------------------------
 function openDetail(f, { random = false } = {}) {
@@ -786,6 +796,8 @@ function boot(d) {
     options: [0, 7, 11, 15].map((a) => ({ v: String(a), label: AGE_LABEL[a], n: films.filter((f) => ageOf(f) === a).length })),
   });
 
+  wireShelf($('.signs-wrap'));
+  document.fonts?.ready.then(() => dispatchEvent(new Event('resize'))); // sign widths change once the neon font loads
   $('#signs').onclick = (e) => { const b = e.target.closest('.aisle-sign'); if (b) set({ genre: b.dataset.g }); };
   let qt;
   $('#q').oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => set({ q: e.target.value.trim() }), 120); };
@@ -809,6 +821,9 @@ function boot(d) {
   const f = film && films.find((x) => x.editions.some((e) => e.key === film));
   if (f) openDetail(f); else writeUrl();
 }
+
+// PWA: offline shell + installable (see sw.js)
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
 fetch('data/films.json').then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(boot).catch((e) => {
   console.error(e);

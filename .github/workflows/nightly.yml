@@ -8,6 +8,8 @@ on:
     branches: [main]
     paths:
       - index.html
+      - sw.js
+      - manifest.webmanifest
       - fonts/**
       - img/**
       - scripts/**
@@ -53,7 +55,7 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p _site/data
-          cp index.html _site/
+          cp index.html sw.js manifest.webmanifest _site/
           cp -r fonts img _site/
           cp data/films.json _site/data/
 
