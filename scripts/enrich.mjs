@@ -70,6 +70,31 @@ function similarity(a, b) {
 const dvdYear = (f) => parseInt(String(f.year || '').match(/\d{4}/)?.[0] || '0', 10) || null;
 const isSeries = (f) => f.genre.some((g) => /tv-serie/i.test(g));
 
+// Manual fixes for titles the fuzzy matcher paired with an unrelated TV series
+// ("Alien 3" -> "Alien Nine", "Paris" -> a 1994 sitcom). library key -> TMDb movie id, or null = no match.
+// A cached entry that disagrees is redone on the next run.
+const OVERRIDES = {
+  8404172: 8077, // Alien 3
+  8095038: 82283, // "It" (1927 comedy)
+  8531546: 3019, // Dr. Jekyll and Mr. Hyde 1932 & 1941 (box holds both; 1931 film)
+  8331891: 11190, // Vozvrasjtjenije (The Return)
+  8095035: 513, // Fire (Deepa Mehta)
+  8136431: 8355, // Ice Age 3
+  8224313: 12430, // Vegas (Amir Naderi)
+  8369901: 8279, // Paris (Klapisch)
+  8059354: 78182, // Jelena (Elena, Zvyagintsev)
+  8102880: 309373, // Super troupers (ABBA)
+  8059643: null, // 40
+  8246354: null, // Slas klassiska filmer
+  8287451: null, // Mar
+  8149327: null, // Raz
+  8354660: null, // Utubus-i shab (The Night Bus)
+  8346003: null, // Evolve
+  8127030: null, // Zoombie
+};
+const hasOverride = (f) => Object.hasOwn(OVERRIDES, f.key);
+const overrideOk = (f, e) => !hasOverride(f) || (OVERRIDES[f.key] === null ? e?.matched === false : e?.kind === 'movie' && e?.id === OVERRIDES[f.key]);
+
 // Series volumes: "Miffy 1", "Hedebyborna D. 3.", "Fellini 1."
 const stripVolume = (t) => t.replace(/[\s,]*(d\.|del|vol\.?|volume|säsong|season)?\s*\d+\.?$/i, '').trim();
 
@@ -122,7 +147,11 @@ async function match(f) {
   // likely kind first; fall back to the other (library genre tags miss many TV boxes)
   const kinds = isSeries(f) || /\d+\.?$/.test(f.title) ? ['tv', 'movie'] : ['movie', 'tv'];
   let best = null;
-  outer: for (const kind of kinds) {
+  if (hasOverride(f)) {
+    if (OVERRIDES[f.key] === null) return { matched: false, bestScore: 0, manual: true };
+    best = { s: 1.2, r: { id: OVERRIDES[f.key] }, kind: 'movie' };
+  }
+  if (!best) outer: for (const kind of kinds) {
     for (const query of tries) {
       for (const lang of ['sv-SE', 'en-US']) {
         const res = await tmdb(`/search/${kind}`, { query, language: lang, include_adult: 'false' });
@@ -196,7 +225,7 @@ const AGE_APPEND = { movie: 'release_dates', tv: 'content_ratings' };
 // --- run --------------------------------------------------------------------
 const LIMIT = parseInt(process.env.LIMIT || '0', 10); // dev: only process N uncached titles
 const stale = (e) => !e || (!(e.matched && e.score >= MATCH_THRESHOLD) && (e.v ?? 1) < MATCHER_VERSION);
-let todo = data.films.filter((f) => stale(cache[f.key]));
+let todo = data.films.filter((f) => stale(cache[f.key]) || !overrideOk(f, cache[f.key]));
 if (LIMIT) todo = todo.sort(() => Math.random() - 0.5).slice(0, LIMIT);
 console.log(`${data.films.length} films, ${todo.length} uncached`);
 let done = 0, failed = 0;

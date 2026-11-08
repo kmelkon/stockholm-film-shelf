@@ -476,6 +476,8 @@ function genresOf(f) {
     const l = norm(g);
     for (const [re, name] of GENRE_RULES) if (re.test(l)) out.add(name);
   }
+  // TV boxes get their own aisle: TMDb says series, or the library tags it "TV-serier"
+  if (f.tmdb?.kind === 'tv' || f.genre.some((g) => /tv-serie/i.test(g))) out.add('TV-serier');
   return [...out];
 }
 
@@ -543,7 +545,7 @@ function lcdSelect(root, { all, options, value, onChange }) {
 // --- state ---------------------------------------------------------------------
 const COLORS = ['#ff3ea5', '#2de2e6', '#ffd23f', '#7dffb0', '#b78cff', '#ff8a3d', '#ff5148', '#5ab8ff'];
 const ICONS = { Skräck: '☠', Komedi: '☺', Drama: '♥', Animerat: '✦', Fantasy: '✧', Action: '✸', Thriller: '◉', Kriminal: '⚿', Romantik: '❤', 'Science fiction': '☄',
-  Äventyr: '➶', Krig: '✠', Historisk: '♜', Familj: '☀', Mystik: '?', Dokumentär: '◎', Musik: '♫', Västern: '★', 'TV-film': '▭' };
+  Äventyr: '➶', Krig: '✠', Historisk: '♜', Familj: '☀', Mystik: '?', Dokumentär: '◎', Musik: '♫', Västern: '★', 'TV-film': '▭', 'TV-serier': '▤' };
 let branchSel, langSel, ageSel;
 // Swedish age buckets from enrich.mjs (0 = barntillåten); ageFrom says which country's rating filled it
 const AGE_LABEL = { 0: 'Barntillåten', 7: 'Från 7 år', 11: 'Från 11 år', 15: 'Från 15 år' };
@@ -614,6 +616,7 @@ const SHELVES = [
   { t: '✦ Animerat', c: 'var(--pink)', g: 'Animerat' },
   { t: '♥ Drama', c: '#b78cff', g: 'Drama' },
   { t: '◎ Dokumentär', c: '#ff8a3d', g: 'Dokumentär' },
+  { t: '▤ TV-serier', c: '#5ab8ff', g: 'TV-serier' },
 ];
 
 function receipt(n) {
