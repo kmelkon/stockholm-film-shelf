@@ -1,7 +1,7 @@
 // Filmhyllan service worker: same-origin only (covers from TMDb / the library are left to the browser).
 // Page + films.json: network first so the nightly update shows right away, cache as offline fallback.
 // Fonts + icons: cache first (they never change without a new VERSION).
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL = ['./', 'index.html', 'fonts/fonts.css', 'manifest.webmanifest', 'img/icon.svg', 'img/tmdb.svg'];
 
 self.addEventListener('install', (e) => {
