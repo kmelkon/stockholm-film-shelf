@@ -13,6 +13,12 @@
 <meta name="theme-color" content="#0a0614">
 <!-- fonts are self-hosted so no visitor IPs go to Google (see Integritet) -->
 <link rel="stylesheet" href="fonts/fonts.css">
+<script>
+  // display settings (scanlines / cover glare), applied before first paint to avoid a flash
+  try { const fx = JSON.parse(localStorage.getItem('filmhyllan.fx') || '{}');
+    document.documentElement.classList.toggle('no-scan', fx.scan === false);
+    document.documentElement.classList.toggle('no-glare', fx.glare === false); } catch {}
+</script>
 <style>
   :root {
     --night: #0a0614;
@@ -42,6 +48,7 @@
       repeating-conic-gradient(from 45deg, var(--carpet) 0 25%, var(--night) 0 50%) 0 0 / 46px 46px; }
   body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 60;
     background: repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.16) 0 1px, transparent 1px 3px); }
+  .no-scan body::after, .no-glare .case::after { display: none; }
   .wrap { max-width: 1360px; margin: 0 auto; padding: 0 28px; }
   button { font: inherit; color: inherit; }
   /* VT323 + Bungee have uneven ascent/descent: trim each label to cap height, then pad symmetrically */
@@ -120,6 +127,7 @@
   .chk { display: flex; align-items: center; gap: 8px; font: 400 18px var(--crt); color: var(--dim); cursor: pointer; }
   .chk input { accent-color: var(--pink); width: 16px; height: 16px; }
   .vcr .btn.surprise { margin-left: auto; }
+  .fx { display: flex; gap: 16px; }
 
   /* "Överraska mig": a VHS rewind between the click and the pick */
   .rewind { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; background: rgb(5 3 10 / 0.92); pointer-events: none; overflow: hidden; }
@@ -320,6 +328,10 @@
       <button data-s="title" aria-pressed="false"><i>⏏</i>A–Ö</button>
     </div>
     <label class="chk"><input type="checkbox" id="covers"> BARA MED OMSLAG</label>
+    <span class="fx" role="group" aria-label="Bildeffekter">
+      <label class="chk" title="CRT-ränder över hela sidan"><input type="checkbox" id="fxScan" data-fx="scan"> SCANLINES</label>
+      <label class="chk" title="Plastglans på omslagen"><input type="checkbox" id="fxGlare" data-fx="glare"> GLANS</label>
+    </span>
     <button class="btn surprise" id="surprise" title="Slumpa fram en bra film som är inne (följer dina filter)">⟲ ÖVERRASKA MIG</button>
   </div>
 
@@ -357,7 +369,7 @@
       <h3>INTEGRITET</h3>
       <ul>
         <li><b>Inga cookies, ingen analys, ingen spårning, inga konton.</b></li>
-        <li>Dina val (bibliotek, ”inne nu”, sortering) sparas bara i din egen webbläsare och skickas aldrig någonstans.</li>
+        <li>Dina val (bibliotek, ”inne nu”, sortering, bildeffekter) sparas bara i din egen webbläsare och skickas aldrig någonstans.</li>
         <li>Typsnitten ligger på sidan själv. Omslag laddas från TMDb och bibliotekets server, som då ser din IP-adress precis som vid all bildladdning på webben. Trailers öppnas på YouTube först när du klickar.</li>
         <li>Sidan ligger på GitHub Pages, som kan logga IP-adresser av säkerhetsskäl (<a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">GitHubs integritetspolicy</a>).</li>
         <li>Sidan och filmlistan sparas i webbläsarens cache så att den går att öppna offline och kan installeras som app. Inget av det lämnar din enhet.</li>
@@ -807,6 +819,15 @@ function boot(d) {
   $('#home').onclick = () => set({ ...CLEAR, branch: S.branch, inne: S.inne }); // keep standing prefs
 
   $('#surprise').onclick = surprise;
+  // display settings: not filters, so they live outside S / the URL
+  const root = document.documentElement;
+  $('#fxScan').checked = !root.classList.contains('no-scan');
+  $('#fxGlare').checked = !root.classList.contains('no-glare');
+  document.querySelector('.fx').onchange = () => {
+    const fx = { scan: $('#fxScan').checked, glare: $('#fxGlare').checked };
+    root.classList.toggle('no-scan', !fx.scan); root.classList.toggle('no-glare', !fx.glare);
+    try { localStorage.setItem('filmhyllan.fx', JSON.stringify(fx)); } catch {}
+  };
 
   const branchSet = new Set(branches.map(([b]) => b));
   loadPrefs(branchSet);
