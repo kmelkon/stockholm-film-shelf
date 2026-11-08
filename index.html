@@ -706,7 +706,7 @@ function openDetail(f, { random = false } = {}) {
         ${t?.trailer ? `<a class="btn" href="${esc(t.trailer)}" target="_blank" rel="noopener">▶ TRAILER</a>` : ''}
         ${t ? `<a class="btn d" href="https://www.themoviedb.org/${t.kind}/${t.id}" target="_blank" rel="noopener">TMDB</a>` : ''}
         <button class="btn d" data-share>DELA</button>
-        ${random ? `<button class="btn y" data-reroll>⟲ EN TILL</button>` : ''}
+        ${random ? `<button class="btn y" data-reroll>EN TILL</button>` : ''}
       </div>
     </div></div>`;
   dlg.querySelector('.x').onclick = () => dlg.close();
