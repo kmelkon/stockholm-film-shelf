@@ -60,6 +60,13 @@
   @keyframes flicker { 0%, 92%, 96%, 100% { opacity: 1; } 93% { opacity: 0.35; } 95% { opacity: 0.8; } }
   .open { display: inline-flex; align-items: center; gap: 10px; font: 400 22px var(--crt); color: var(--cyan); border: 2px solid var(--cyan); padding: 10px 16px; border-radius: 6px;
     text-shadow: 0 0 8px var(--cyan); box-shadow: 0 0 14px rgb(45 226 230 / 0.5), inset 0 0 12px rgb(45 226 230 / 0.25); }
+  .hud { display: flex; flex-wrap: wrap; gap: 12px; }
+  .cfg { background: none; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
+  .cfg::before { display: none; }
+  .cfg span { font-size: 20px; }
+  .cfg b { font-weight: 400; }
+  @media (max-width: 860px) { .hud { flex-wrap: nowrap; } .cfg b { display: none; } } /* phone: cog only, same row as ÖPPET */
+  .cfg:hover, .cfg:focus-visible { background: var(--cyan); color: var(--night); text-shadow: none; outline: 0; box-shadow: 0 0 26px var(--cyan); }
   .open::before { content: ''; flex: none; width: 10px; height: 10px; border-radius: 50%; background: #5dff7a; box-shadow: 0 0 8px #5dff7a; }
 
   /* genre = hanging neon aisle signs */
@@ -109,10 +116,10 @@
   .lcd-list .none { color: #2f6b47; cursor: default; }
   .field:focus-within { border-color: var(--green); box-shadow: 0 0 12px rgb(125 255 176 / 0.35); }
   .inne { display: flex; align-items: center; gap: 12px; padding: 0 16px; border-radius: 8px; border: 2px solid var(--panel-edge); background: #05030a; cursor: pointer; }
-  .inne .lamp { width: 18px; height: 18px; border-radius: 50%; background: #3a1420; box-shadow: inset 0 2px 4px rgb(0 0 0 / 0.6); transition: all .2s; }
+  .inne .lamp, .opt .lamp { width: 18px; height: 18px; border-radius: 50%; background: #3a1420; box-shadow: inset 0 2px 4px rgb(0 0 0 / 0.6); transition: all .2s; }
   .inne b { font: 400 15px var(--sign); color: var(--dim); }
   .inne[aria-pressed=true] { border-color: var(--green); }
-  .inne[aria-pressed=true] .lamp { background: #5dff7a; box-shadow: 0 0 10px #5dff7a, 0 0 22px #5dff7a; }
+  .inne[aria-pressed=true] .lamp, .opt[aria-pressed=true] .lamp { background: #5dff7a; box-shadow: 0 0 10px #5dff7a, 0 0 22px #5dff7a; }
   .inne[aria-pressed=true] b { color: var(--green); }
 
   /* sort = VCR transport buttons */
@@ -127,7 +134,6 @@
   .chk { display: flex; align-items: center; gap: 8px; font: 400 18px var(--crt); color: var(--dim); cursor: pointer; }
   .chk input { accent-color: var(--pink); width: 16px; height: 16px; }
   .vcr .btn.surprise { margin-left: auto; }
-  .fx { display: flex; gap: 16px; }
 
   /* "Överraska mig": a VHS rewind between the click and the pick */
   .rewind { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; background: rgb(5 3 10 / 0.92); pointer-events: none; overflow: hidden; }
@@ -265,6 +271,17 @@
   .about ul { padding-left: 20px; margin: 6px 0; }
   .about a:not(.btn) { color: var(--cyan); }
   .about .acts { margin-top: 26px; }
+  /* settings: lamp toggles, same as INNE NU; changes apply immediately */
+  dialog#settings { width: min(520px, calc(100vw - 32px)); }
+  .opts { display: grid; gap: 12px; margin-top: 20px; }
+  .opt { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 14px 16px; cursor: pointer;
+    border-radius: 8px; border: 2px solid var(--panel-edge); background: #05030a; transition: border-color .2s; }
+  .opt b { display: block; font: 400 16px var(--sign); color: var(--dim); }
+  .opt small { display: block; margin-top: 4px; font-size: 14px; line-height: 1.4; color: #b9aed2; }
+  .opt[aria-pressed=true] { border-color: var(--green); }
+  .opt[aria-pressed=true] b { color: var(--green); }
+  .opt:hover, .opt:focus-visible { outline: 0; border-color: var(--cyan); }
+  .about .note { margin: 16px 0 0; font-size: 13px; color: var(--dim); }
   @media (max-width: 860px) { .about { padding: 24px 18px; } .about h2 { font-size: 24px; } }
   .boot { padding: 80px 0; text-align: center; font: 400 30px var(--crt); color: var(--green); text-shadow: 0 0 8px var(--green); }
   .boot.err { color: var(--red); text-shadow: none; }
@@ -306,7 +323,10 @@
 <div class="wrap">
   <header>
     <button class="sign" id="home" title="Till butiken (rensa filter)">FILMHYLLAN</button>
-    <div class="open" id="open">STARTAR…</div>
+    <div class="hud">
+      <div class="open" id="open">STARTAR…</div>
+      <button class="open cfg" id="cfgBtn" aria-haspopup="dialog" aria-label="Inställningar"><span aria-hidden="true">⚙&#xFE0E;</span><b>INSTÄLLNINGAR</b></button>
+    </div>
   </header>
 
   <div class="shelf-wrap signs-wrap" style="--c:var(--pink)"><button class="nav prev" aria-label="Fler genrer bakåt">◀&#xFE0E;</button>
@@ -328,10 +348,6 @@
       <button data-s="title" aria-pressed="false"><i>⏏</i>A–Ö</button>
     </div>
     <label class="chk"><input type="checkbox" id="covers"> BARA MED OMSLAG</label>
-    <span class="fx" role="group" aria-label="Bildeffekter">
-      <label class="chk" title="CRT-ränder över hela sidan"><input type="checkbox" id="fxScan" data-fx="scan"> SCANLINES</label>
-      <label class="chk" title="Plastglans på omslagen"><input type="checkbox" id="fxGlare" data-fx="glare"> GLANS</label>
-    </span>
     <button class="btn surprise" id="surprise" title="Slumpa fram en bra film som är inne (följer dina filter)">⟲ ÖVERRASKA MIG</button>
   </div>
 
@@ -345,6 +361,17 @@
   </footer>
 </div>
 <dialog id="dlg" aria-label="Film"></dialog>
+<dialog id="settings" aria-label="Inställningar">
+  <div class="about">
+    <button class="x" aria-label="Stäng">✕</button>
+    <h2>⚙&#xFE0E; INSTÄLLNINGAR</h2>
+    <div class="opts">
+      <button class="opt" data-fx="scan" aria-pressed="true"><span class="lamp"></span><span><b>SCANLINES</b><small>Tunna ränder över hela sidan, som på en gammal tjock-tv.</small></span></button>
+      <button class="opt" data-fx="glare" aria-pressed="true"><span class="lamp"></span><span><b>GLANS</b><small>Plastglans över omslagen, som på ett VHS-fodral. Stäng av för skarpare omslag.</small></span></button>
+    </div>
+    <p class="note">Sparas bara i din webbläsare.</p>
+  </div>
+</dialog>
 <dialog id="about" aria-label="Om Filmhyllan">
   <div class="about">
     <button class="x" aria-label="Stäng">✕</button>
@@ -759,6 +786,20 @@ function openAbout(id) {
 const aboutFromHash = () => { const id = location.hash.slice(1); if (ABOUT.includes(id)) openAbout(id); };
 addEventListener('hashchange', aboutFromHash);
 aboutFromHash();
+// --- settings: display effects, not filters, so they live outside S / the URL. Class is set in <head> before paint.
+{
+  const root = document.documentElement, dlg = $('#settings'), opts = dlg.querySelectorAll('.opt');
+  const on = (k) => !root.classList.contains(`no-${k}`);
+  const sync = () => opts.forEach((b) => b.setAttribute('aria-pressed', on(b.dataset.fx)));
+  $('#cfgBtn').onclick = () => { sync(); dlg.showModal(); };
+  dlg.querySelector('.x').onclick = () => dlg.close();
+  dlg.onclick = (e) => { if (e.target === dlg) dlg.close(); };
+  opts.forEach((b) => b.onclick = () => {
+    root.classList.toggle(`no-${b.dataset.fx}`, on(b.dataset.fx));
+    sync();
+    try { localStorage.setItem('filmhyllan.fx', JSON.stringify({ scan: on('scan'), glare: on('glare') })); } catch {}
+  });
+}
 $('#about .x').onclick = () => $('#about').close();
 $('#about').onclick = (e) => { if (e.target.id === 'about') e.target.close(); };
 // drop the hash on close so the same link works again
@@ -819,15 +860,6 @@ function boot(d) {
   $('#home').onclick = () => set({ ...CLEAR, branch: S.branch, inne: S.inne }); // keep standing prefs
 
   $('#surprise').onclick = surprise;
-  // display settings: not filters, so they live outside S / the URL
-  const root = document.documentElement;
-  $('#fxScan').checked = !root.classList.contains('no-scan');
-  $('#fxGlare').checked = !root.classList.contains('no-glare');
-  document.querySelector('.fx').onchange = () => {
-    const fx = { scan: $('#fxScan').checked, glare: $('#fxGlare').checked };
-    root.classList.toggle('no-scan', !fx.scan); root.classList.toggle('no-glare', !fx.glare);
-    try { localStorage.setItem('filmhyllan.fx', JSON.stringify(fx)); } catch {}
-  };
 
   const branchSet = new Set(branches.map(([b]) => b));
   loadPrefs(branchSet);
