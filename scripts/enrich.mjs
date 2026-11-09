@@ -1,4 +1,4 @@
-// Enrich data/films.json with TMDb: rating, poster, overview, trailer.
+// Enrich data/films.json with TMDb: rating, poster, overview, trailer, age limit, director + cast.
 // Usage: TMDB_API_KEY=... node scripts/enrich.mjs
 // Cache: data/tmdb-cache.json (keyed by library key) so nightly runs only query new titles.
 import { readFile, writeFile } from 'node:fs/promises';
@@ -186,7 +186,7 @@ async function match(f) {
   if (!best || best.s < MATCH_THRESHOLD) return { matched: false, bestScore: best?.s ?? 0 };
   const kind = best.kind;
 
-  const d = await tmdb(`/${kind}/${best.r.id}`, { language: 'sv-SE', append_to_response: `videos,${AGE_APPEND[kind]}`, include_video_language: 'sv,en,null' });
+  const d = await tmdb(`/${kind}/${best.r.id}`, { language: 'sv-SE', append_to_response: `videos,${AGE_APPEND[kind]},credits`, include_video_language: 'sv,en,null' });
   const vids = d?.videos?.results ?? [];
   const trailer = vids.find((v) => v.site === 'YouTube' && v.type === 'Trailer' && v.iso_639_1 === 'sv')
     ?? vids.find((v) => v.site === 'YouTube' && v.type === 'Trailer')
@@ -208,6 +208,19 @@ async function match(f) {
     overview: overview || null,
     trailer: trailer ? `https://www.youtube.com/watch?v=${trailer.key}` : null,
     ...pickAge(kind, d),
+    people: pickPeople(d),
+  };
+}
+
+// --- people (I7): director(s) + top-billed cast as [tmdbPersonId, name]; TV creators stand in for directors ---
+const CAST_MAX = 5;
+const person = (p) => [p.id, p.name];
+function pickPeople(d) {
+  const crew = d?.credits?.crew ?? [], cast = d?.credits?.cast ?? [];
+  const dir = d?.created_by?.length ? d.created_by : crew.filter((c) => c.job === 'Director');
+  return {
+    dir: [...new Map(dir.map((p) => [p.id, p])).values()].slice(0, 3).map(person),
+    cast: cast.slice().sort((a, b) => a.order - b.order).slice(0, CAST_MAX).map(person),
   };
 }
 
@@ -279,6 +292,27 @@ await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
 }));
 if (noAge.length) await writeFile(cacheUrl, JSON.stringify(cache));
 
+// Backfill people for hits cached before credits existed: one call per unique TMDb title, once.
+const noPeople = new Map();
+for (const f of data.films) {
+  const e = cache[f.key];
+  if (e?.matched && !e.people) (noPeople.get(`${e.kind}:${e.id}`) ?? noPeople.set(`${e.kind}:${e.id}`, []).get(`${e.kind}:${e.id}`)).push(e);
+}
+const peopleQueue = [...noPeople.values()];
+let peopleFailed = 0;
+if (peopleQueue.length) console.log(`backfilling people for ${peopleQueue.length} titles`);
+await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
+  while (peopleQueue.length) {
+    const es = peopleQueue.shift(), { kind, id } = es[0];
+    try { // TV creators only come with the show itself; films need just the credits
+      const d = kind === 'tv' ? await tmdb(`/tv/${id}`, { append_to_response: 'credits' }) : { credits: await tmdb(`/movie/${id}/credits`) };
+      const people = pickPeople(d);
+      for (const e of es) e.people = people;
+    } catch { peopleFailed++; } // retried next run: 'people' stays unset
+  }
+}));
+if (noPeople.size) await writeFile(cacheUrl, JSON.stringify(cache));
+
 // Health check: many request failures usually means a bad/revoked key or TMDb outage.
 const MAX_FAIL_RATE = 0.05;
 if (todo.length && failed / todo.length > MAX_FAIL_RATE) {
@@ -293,4 +327,5 @@ await writeFile(dataUrl, JSON.stringify(data));
 const m = data.films.filter((f) => f.tmdb);
 console.log(`matched ${m.length}/${data.films.length} (${((100 * m.length) / data.films.length).toFixed(1)}%)`
   + ` | trailers ${m.filter((f) => f.tmdb.trailer).length} | ages ${m.filter((f) => f.tmdb.age != null).length}`
-  + ` (SE ${m.filter((f) => f.tmdb.ageFrom === 'SE').length}) | failed ${failed} | age failed ${ageFailed}`);
+  + ` (SE ${m.filter((f) => f.tmdb.ageFrom === 'SE').length}) | failed ${failed} | age failed ${ageFailed}`
+  + ` | people ${m.filter((f) => f.tmdb.people).length} | people failed ${peopleFailed}`);

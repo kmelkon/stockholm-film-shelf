@@ -231,6 +231,19 @@
   .back .meta { font: 400 22px var(--crt); color: var(--cyan); }
   .back p { line-height: 1.55; color: #dcd3ee; }
   .back .cast { font-size: 14px; color: var(--dim); }
+  .back .cast + .cast { margin-top: 4px; }
+  .who { font: inherit; color: var(--cyan); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+  .who:hover, .who:focus-visible { color: var(--white); text-shadow: 0 0 8px var(--cyan); outline: 0; }
+  .back .more-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .back .more-h .who { font: 400 13px var(--sign); letter-spacing: 0.04em; text-decoration: none; }
+  .mini { display: flex; gap: 10px; overflow-x: auto; padding: 4px 0 8px; scrollbar-width: thin; scrollbar-color: var(--pink) transparent; }
+  .mini button { flex: 0 0 88px; width: 88px; min-width: 0; align-self: start; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; color: var(--white); font: 400 12px/1.25 var(--sign); }
+  .mini .c { position: relative; aspect-ratio: 2 / 3; background: #000; border: 1px solid var(--panel-edge); margin-bottom: 5px; overflow: hidden; }
+  .mini .c img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .mini .c .lbl { font-size: 11px; }
+  .mini .t { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; hyphens: auto; overflow-wrap: anywhere; }
+  .mini button:hover .c, .mini button:focus-visible .c { border-color: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+  .mini button:focus-visible { outline: 0; }
   .back h4 { font: 400 15px var(--sign); color: var(--pink); margin: 20px 0 4px; letter-spacing: 0.04em; }
   .back ul { list-style: none; padding: 0 6px 0 0; margin: 0; font: 400 20px var(--crt); max-height: 220px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--pink) transparent; }
   .back li { color: var(--white); display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dashed var(--panel-edge); padding: 3px 0; }
@@ -421,7 +434,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const norm = (s) => (s || '').toLocaleLowerCase('sv');
 const PAGE = 120;
-const S = { genre: '', q: '', branch: '', lang: '', age: '', inne: false, sort: 'rating', covers: false };
+const S = { genre: '', q: '', branch: '', lang: '', age: '', inne: false, sort: 'rating', covers: false, person: '' };
 let films = [], shown = PAGE;
 
 // --- data helpers ------------------------------------------------------------
@@ -430,6 +443,27 @@ const titleOf = (f) => f.tmdb?.tmdbTitle || f.title;
 const formatOf = (f) => (f.format || '').replaceAll('Film, ', '');
 // TMDb posters are uniform 2:3; the library cover is the fallback (and vice versa on load error)
 const coversOf = (f) => [f.tmdb?.poster, f.cover].filter(Boolean);
+
+// I7: TMDb people. PEOPLE: id (string) -> { name, dir: films directed, cast: films acted in }
+const PEOPLE = new Map();
+function indexPeople() {
+  for (const f of films) {
+    f.pids = new Set();
+    const p = f.tmdb?.people;
+    if (!p) continue;
+    for (const role of ['dir', 'cast']) for (const [id, name] of p[role]) {
+      const k = String(id);
+      if (!PEOPLE.has(k)) PEOPLE.set(k, { name, dir: 0, cast: 0 });
+      if (!f.pids.has(k)) PEOPLE.get(k)[role]++;
+      f.pids.add(k);
+    }
+  }
+}
+const roleOf = (id) => { const p = PEOPLE.get(id); return p.dir && p.cast ? 'REGI & ROLL' : p.dir ? 'REGI' : 'MED'; };
+const filmsOf = (id) => PEOPLE.get(id).dir + PEOPLE.get(id).cast;
+// a name links only when the shop has more than this one film with them
+const whoLinks = (list) => list.map(([id, name]) => filmsOf(String(id)) > 1
+  ? `<button class="who" data-p="${esc(String(id))}">${esc(name)}</button>` : esc(name)).join(', ');
 // Bayesian average: pull low-vote ratings toward 6.5 so a 9.0 from 3 votes doesn't top the list
 const wr = (f) => f.tmdb?.rating ? (f.tmdb.votes * f.tmdb.rating + 50 * 6.5) / (f.tmdb.votes + 50) : 0;
 
@@ -585,7 +619,7 @@ let branchSel, langSel, ageSel;
 // Swedish age buckets from enrich.mjs (0 = barntillåten); ageFrom says which country's rating filled it
 const AGE_LABEL = { 0: 'Barntillåten', 7: 'Från 7 år', 11: 'Från 11 år', 15: 'Från 15 år' };
 const ageOf = (f) => f.tmdb?.age ?? null;
-const CLEAR = { genre: '', q: '', branch: '', lang: '', age: '', inne: false, covers: false };
+const CLEAR = { genre: '', q: '', branch: '', lang: '', age: '', inne: false, covers: false, person: '' };
 
 function set(patch) {
   if ('q' in patch && $('#q').value.trim() !== patch.q) $('#q').value = patch.q;
@@ -622,10 +656,11 @@ function filtered() {
     (!S.lang || f.languages.includes(S.lang)) &&
     (!S.age || String(ageOf(f)) === S.age) &&
     (!S.covers || coversOf(f).length) &&
+    (!S.person || f.pids.has(S.person)) &&
     (!q || f.hay.includes(q))
   ).sort(SORTS[S.sort]);
 }
-const searching = () => S.genre || S.q || S.lang || S.age || S.covers;
+const searching = () => S.genre || S.q || S.lang || S.age || S.covers || S.person;
 
 // --- rendering -------------------------------------------------------------------
 function tape(f, i) {
@@ -666,6 +701,7 @@ function receipt(n) {
     S.age && ['ÅLDER', AGE_LABEL[S.age], { age: '' }],
     S.inne && ['', 'BARA INNE', { inne: false }],
     S.covers && ['', 'MED OMSLAG', { covers: false }],
+    S.person && [roleOf(S.person), PEOPLE.get(S.person).name, { person: '' }],
   ].filter(Boolean);
   const el = $('#receipt');
   el.classList.toggle('on', items.length > 0);
@@ -696,7 +732,8 @@ function render() {
     main.querySelectorAll('.more').forEach((b) => b.onclick = () => { set({ genre: b.dataset.g }); $('#signs').scrollIntoView({ behavior: 'smooth' }); });
     return;
   }
-  const title = S.genre ? `${ICONS[S.genre] || '◆'} GÅNG: ${S.genre.toUpperCase()}` : S.q ? 'SÖKRESULTAT' : 'URVAL';
+  const title = S.person ? `◆ ${roleOf(S.person)}: ${PEOPLE.get(S.person).name.toUpperCase()}`
+    : S.genre ? `${ICONS[S.genre] || '◆'} GÅNG: ${S.genre.toUpperCase()}` : S.q ? 'SÖKRESULTAT' : 'URVAL';
   main.innerHTML = `<div class="wall-head"><h2>${esc(title)}</h2><span>${list.length.toLocaleString('sv')} BAND</span></div>` +
     (list.length ? `<div class="wall">${list.slice(0, shown).map(tape).join('')}</div>` +
       (shown < list.length ? `<div class="loadmore"><button class="btn y" id="moreBtn">▼ VISA ${Math.min(PAGE, list.length - shown)} TILL</button></div>` : '')
@@ -719,6 +756,20 @@ function wireShelf(wrap) {
 addEventListener('resize', () => document.querySelectorAll('.shelf-wrap').forEach((w) => w.querySelector('.shelf, .signs').dispatchEvent(new Event('scroll'))));
 
 // --- detail: back of the box -------------------------------------------------------
+// "Mer av <regissör>": the first director with other films in the shop, best rated first
+const MINI_MAX = 12;
+function moreBy(f) {
+  for (const [id, name] of f.tmdb?.people?.dir ?? []) {
+    const k = String(id), others = films.filter((x) => x !== f && x.pids.has(k)).sort((a, b) => wr(b) - wr(a));
+    if (!others.length) continue;
+    return `<div class="more-h"><h4>MER AV ${esc(name.toUpperCase())}</h4>${filmsOf(k) > MINI_MAX
+      ? `<button class="who" data-p="${esc(k)}">ALLA ${filmsOf(k)} →</button>` : ''}</div>
+      <div class="mini">${others.slice(0, MINI_MAX).map((x) => { const [src] = coversOf(x);
+        return `<button data-i="${x.i}" title="${esc(titleOf(x))}"><div class="c"><span class="lbl">${esc(titleOf(x))}</span>${src
+          ? `<img loading="lazy" src="${esc(src)}" alt="" onerror="this.remove()">` : ''}</div><span class="t">${esc(titleOf(x))}</span></button>`; }).join('')}</div>`;
+  }
+  return '';
+}
 function openDetail(f, { random = false } = {}) {
   const t = f.tmdb, [src, alt] = coversOf(f), dlg = $('#dlg');
   const big = src?.replace('/w342/', '/w500/');
@@ -738,7 +789,9 @@ function openDetail(f, { random = false } = {}) {
         ageOf(f) != null ? `${AGE_LABEL[ageOf(f)].toUpperCase()}${t.ageFrom !== 'SE' ? ` (${t.ageFrom})` : ''}` : null,
         f.genres.join(' / ').toUpperCase() || null].filter(Boolean).join(' · '))}</div>
       ${t?.overview ? `<p>${esc(t.overview)}</p>` : ''}
-      ${f.actors.length ? `<div class="cast">Med: ${esc(f.actors.slice(0, 6).join(', '))}</div>` : ''}
+      ${t?.people ? (t.people.dir.length ? `<div class="cast">${t.kind === 'tv' ? 'Skapad av' : 'Regi'}: ${whoLinks(t.people.dir)}</div>` : '')
+        + (t.people.cast.length ? `<div class="cast">Med: ${whoLinks(t.people.cast)}</div>` : '')
+        : f.actors.length ? `<div class="cast">Med: ${esc(f.actors.slice(0, 6).join(', '))}</div>` : ''}
       <div class="hold-h"><h4>FINNS PÅ · ${f.availableNow}/${f.copies} INNE</h4>${'geolocation' in navigator ? `<button class="near-btn" data-near ${here ? 'disabled' : ''}>${here ? 'SORTERAT PÅ AVSTÅND' : '⌖ NÄRMAST MIG'}</button>` : ''}</div>
       <ul>${hold.map((h) => `<li class="${h === near ? 'near' : h.branch === S.branch ? 'home' : ''}"><span>${esc(shortBranch(h.branch).toUpperCase())}</span>
         ${here ? `<span class="km">${kmLabel(kmTo(h.branch))}</span>` : ''}<span class="${h.available ? 'ok' : 'no'}">${h.available ? `${h.available}/${h.total} INNE` : `0/${h.total} UTLÅNAD`}</span></li>`).join('')}</ul>
@@ -752,9 +805,15 @@ function openDetail(f, { random = false } = {}) {
         <button class="btn d" data-share>DELA</button>
         ${random ? `<button class="btn y" data-reroll>EN TILL</button>` : ''}
       </div>
+      ${moreBy(f)}
     </div></div>`;
   dlg.querySelector('.x').onclick = () => dlg.close();
   dlg.querySelector('[data-share]').onclick = () => share(filmUrl(f), titleOf(f));
+  dlg.querySelectorAll('.who').forEach((b) => b.onclick = () => {
+    dlg.close(); set({ ...CLEAR, branch: S.branch, inne: S.inne, person: b.dataset.p });
+    $('#main').scrollIntoView({ behavior: 'smooth' });
+  });
+  dlg.querySelectorAll('.mini [data-i]').forEach((b) => b.onclick = () => openDetail(films[b.dataset.i]));
   const nb = dlg.querySelector('[data-near]');
   if (nb && !here) nb.onclick = () => {
     nb.disabled = true; nb.textContent = 'LETAR…';
@@ -772,7 +831,7 @@ $('#dlg').addEventListener('close', () => { openFilm = null; writeUrl(); });
 
 // --- I1: shareable URLs. Filters + open film live in the query string (?genre=Skräck&butik=…&film=8366816) ---
 let openFilm = null;
-const PARAMS = { genre: 'genre', q: 'sok', branch: 'butik', lang: 'sprak', age: 'alder', inne: 'inne', sort: 'sortera', covers: 'omslag' };
+const PARAMS = { genre: 'genre', q: 'sok', branch: 'butik', lang: 'sprak', age: 'alder', inne: 'inne', sort: 'sortera', covers: 'omslag', person: 'person' };
 function urlFor(state, film) {
   const u = new URLSearchParams();
   for (const [k, p] of Object.entries(PARAMS)) {
@@ -878,8 +937,10 @@ function boot(d) {
     f.i = i;
     f.added = Math.max(...f.editions.map((e) => Number(e.key) || 0));
     f.genres = genresOf(f);
-    f.hay = norm([f.title, f.originalTitle, f.variantTitle, f.tmdb?.tmdbTitle, ...f.actors].join(' '));
+    f.hay = norm([f.title, f.originalTitle, f.variantTitle, f.tmdb?.tmdbTitle, ...f.actors,
+      ...['dir', 'cast'].flatMap((r) => (f.tmdb?.people?.[r] ?? []).map((p) => p[1]))].join(' '));
   });
+  indexPeople();
   newFrom = films.map((f) => f.added).sort((a, b) => b - a)[NEW_COUNT - 1] || Infinity;
   $('#open').textContent = `ÖPPET · ${films.length.toLocaleString('sv')} FILMER`;
   $('#foot').insertAdjacentText('afterbegin', `HYLLAN INVENTERAD ${new Date(d.fetchedAt).toLocaleString('sv').slice(0, 16)} · `);
@@ -920,6 +981,7 @@ function boot(d) {
   const { patch, film } = readUrl({
     branch: (v) => branchSet.has(v), sort: (v) => v in SORTS, age: (v) => v in AGE_LABEL,
     genre: (v) => genres.some(([g]) => g === v), lang: (v) => films.some((f) => f.languages.includes(v)),
+    person: (v) => PEOPLE.has(v),
   });
   Object.assign(S, patch);
   if (S.q) $('#q').value = S.q;
