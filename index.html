@@ -608,10 +608,13 @@ window.noCover = (img) => {
 };
 
 const SHELF_MAX = 40;
-const thisYear = new Date().getFullYear();
+// The API has no acquisition date, but catalogue keys only grow: the highest keys are the newest records.
+// A film's key is its newest edition's, so a fresh DVD of an old film counts as new.
+const NEW_COUNT = 100;
+let newFrom = Infinity;
 const SHELVES = [
   { t: '★ Personalens favoriter', c: 'var(--yellow)', f: (x) => x.tmdb?.votes >= 300, sort: SORTS.rating },
-  { t: '◆ Nyinkommet', c: 'var(--cyan)', f: (x) => yearOf(x) >= thisYear - 1, sort: SORTS.new },
+  { t: '◆ Nyinkommet', c: 'var(--cyan)', f: (x) => x.added >= newFrom, sort: (a, b) => b.added - a.added },
   { t: '☠ Skräck', c: 'var(--red)', g: 'Skräck' },
   { t: '☺ Komedi', c: '#7dffb0', g: 'Komedi' },
   { t: '✦ Animerat', c: 'var(--pink)', g: 'Animerat' },
@@ -828,9 +831,11 @@ function boot(d) {
   films = dedupe(d.films).filter((f) => f.copies > 0);
   films.forEach((f, i) => {
     f.i = i;
+    f.added = Math.max(...f.editions.map((e) => Number(e.key) || 0));
     f.genres = genresOf(f);
     f.hay = norm([f.title, f.originalTitle, f.variantTitle, f.tmdb?.tmdbTitle, ...f.actors].join(' '));
   });
+  newFrom = films.map((f) => f.added).sort((a, b) => b - a)[NEW_COUNT - 1] || Infinity;
   $('#open').textContent = `ÖPPET · ${films.length.toLocaleString('sv')} FILMER`;
   $('#foot').insertAdjacentText('afterbegin', `HYLLAN INVENTERAD ${new Date(d.fetchedAt).toLocaleString('sv').slice(0, 16)} · `);
 
