@@ -212,6 +212,8 @@
   .sticker.in { background: var(--yellow); color: var(--night); }
   .sticker.out { background: var(--red); color: #fff; }
   .out .case img { filter: grayscale(1) brightness(0.45); }
+  .wl { position: absolute; z-index: 1; top: 8px; left: -4px; transform: rotate(-6deg); font: 400 12px var(--sign); padding: 6px 8px; border-radius: 3px;
+    background: var(--green); color: var(--night); box-shadow: 2px 2px 0 rgb(0 0 0 / 0.5); }
   .rate { position: absolute; z-index: 1; left: 8px; bottom: 8px; font: 400 22px var(--crt); color: var(--yellow); background: rgb(0 0 0 / 0.75); padding: 0 8px; border-radius: 3px; }
   .tape h3 { font: 900 14px/1.2 var(--body); margin: 10px 0 2px; text-transform: uppercase; letter-spacing: 0.02em;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -301,6 +303,15 @@
   .opt[aria-pressed=true] { border-color: var(--green); }
   .opt[aria-pressed=true] b { color: var(--green); }
   .opt:hover, .opt:focus-visible { outline: 0; border-color: var(--cyan); }
+  .lb { margin-top: 24px; padding-top: 18px; border-top: 1px dashed rgb(255 255 255 / 0.15); }
+  .lb h3 { margin: 0 0 8px; }
+  .lb p { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: #b9aed2; }
+  .lb .acts { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; }
+  .lb .acts label { cursor: pointer; }
+  .lb .acts label:focus-within { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  .lb-status { min-height: 1.5em; margin: 12px 0 0 !important; font: 400 18px var(--crt) !important; color: var(--green) !important; }
+  .lb-status.err { color: #ff7a72 !important; }
+  .lb.drag { outline: 2px dashed var(--green); outline-offset: 8px; }
   .about .note { margin: 16px 0 0; font-size: 13px; color: var(--dim); }
   @media (max-width: 860px) { .about { padding: 24px 18px; } .about h2 { font-size: 24px; } }
   .boot { padding: 80px 0; text-align: center; font: 400 30px var(--crt); color: var(--green); text-shadow: 0 0 8px var(--green); }
@@ -368,6 +379,7 @@
       <button data-s="title" aria-pressed="false"><i>⏏</i>A–Ö</button>
     </div>
     <label class="chk"><input type="checkbox" id="covers"> BARA MED OMSLAG</label>
+    <label class="chk" id="wlChk" hidden><input type="checkbox" id="wl"> BARA MIN WATCHLIST</label>
     <button class="btn surprise" id="surprise" title="Slumpa fram en bra film som är inne (följer dina filter)">ÖVERRASKA MIG</button>
   </div>
 
@@ -389,6 +401,12 @@
       <button class="opt" data-fx="scan" aria-pressed="true"><span class="lamp"></span><span><b>SCANLINES</b><small>Tunna ränder över hela sidan, som på en gammal tjock-tv.</small></span></button>
       <button class="opt" data-fx="glare" aria-pressed="true"><span class="lamp"></span><span><b>GLANS</b><small>Plastglans över omslagen, som på ett VHS-fodral. Stäng av för skarpare omslag.</small></span></button>
     </div>
+    <section class="lb" id="lb">
+      <h3>LETTERBOXD-WATCHLIST</h3>
+      <p>Se vilka filmer på din watchlist som finns i butiken. Exportera på letterboxd.com under <b>Settings → Data → Export your data</b> och välj zip-filen här (eller <code>watchlist.csv</code>). Importera igen när listan ändrats.</p>
+      <div class="acts"><label class="btn y">VÄLJ FIL<input type="file" id="lbFile" accept=".zip,.csv,application/zip,text/csv" hidden></label><button class="btn d" id="lbClear" hidden>TA BORT LISTAN</button></div>
+      <p class="lb-status" id="lbStatus" role="status"></p>
+    </section>
     <p class="note">Sparas bara i din webbläsare.</p>
   </div>
 </dialog>
@@ -419,6 +437,7 @@
         <li>Dina val (bibliotek, ”inne nu”, sortering, bildeffekter) sparas bara i din egen webbläsare och skickas aldrig någonstans.</li>
         <li>Typsnitten ligger på sidan själv. Omslag laddas från TMDb och bibliotekets server, som då ser din IP-adress precis som vid all bildladdning på webben. Trailers öppnas på YouTube först när du klickar.</li>
         <li>Sidan ligger på GitHub Pages, som kan logga IP-adresser av säkerhetsskäl (<a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">GitHubs integritetspolicy</a>).</li>
+        <li>Letterboxd-watchlisten du importerar läses och matchas i webbläsaren och sparas bara där. Filen skickas aldrig någonstans.</li>
         <li>”Närmast mig” frågar efter din position först när du klickar. Avståndet räknas i webbläsaren, och positionen sparas inte och skickas aldrig någonstans.</li>
         <li>Sidan och filmlistan sparas i webbläsarens cache så att den går att öppna offline och kan installeras som app. Inget av det lämnar din enhet.</li>
         <li>Sidan skickar ingen ”referrer”: bildservrar och länkar du klickar på får inte veta att du kom härifrån.</li>
@@ -434,7 +453,7 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const norm = (s) => (s || '').toLocaleLowerCase('sv');
 const PAGE = 120;
-const S = { genre: '', q: '', branch: '', lang: '', age: '', inne: false, sort: 'rating', covers: false, person: '' };
+const S = { genre: '', q: '', branch: '', lang: '', age: '', inne: false, sort: 'rating', covers: false, person: '', wl: false };
 let films = [], shown = PAGE;
 
 // --- data helpers ------------------------------------------------------------
@@ -619,7 +638,7 @@ let branchSel, langSel, ageSel;
 // Swedish age buckets from enrich.mjs (0 = barntillåten); ageFrom says which country's rating filled it
 const AGE_LABEL = { 0: 'Barntillåten', 7: 'Från 7 år', 11: 'Från 11 år', 15: 'Från 15 år' };
 const ageOf = (f) => f.tmdb?.age ?? null;
-const CLEAR = { genre: '', q: '', branch: '', lang: '', age: '', inne: false, covers: false, person: '' };
+const CLEAR = { genre: '', q: '', branch: '', lang: '', age: '', inne: false, covers: false, person: '', wl: false };
 
 function set(patch) {
   if ('q' in patch && $('#q').value.trim() !== patch.q) $('#q').value = patch.q;
@@ -633,7 +652,7 @@ function syncControls() {
   document.querySelectorAll('.aisle-sign').forEach((b) => b.setAttribute('aria-pressed', b.dataset.g === S.genre));
   document.querySelectorAll('#sort button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.s === S.sort));
   $('#inne').setAttribute('aria-pressed', S.inne);
-  branchSel.sync(); langSel.sync(); ageSel.sync(); $('#covers').checked = S.covers;
+  branchSel.sync(); langSel.sync(); ageSel.sync(); $('#covers').checked = S.covers; $('#wl').checked = S.wl;
 }
 
 const holdingAt = (f) => f.holdings.find((h) => h.branch === S.branch);
@@ -657,16 +676,18 @@ function filtered() {
     (!S.age || String(ageOf(f)) === S.age) &&
     (!S.covers || coversOf(f).length) &&
     (!S.person || f.pids.has(S.person)) &&
+    (!S.wl || f.wl) &&
     (!q || f.hay.includes(q))
   ).sort(SORTS[S.sort]);
 }
-const searching = () => S.genre || S.q || S.lang || S.age || S.covers || S.person;
+const searching = () => S.genre || S.q || S.lang || S.age || S.covers || S.person || S.wl;
 
 // --- rendering -------------------------------------------------------------------
 function tape(f, i) {
   const a = availAt(f), [src, alt] = coversOf(f), t = titleOf(f);
   return `<a class="tape ${a ? '' : 'out'}" href="${esc(f.url)}" data-i="${f.i}" style="animation-delay:${Math.min(i, 12) * 35}ms">
     <div class="case"><span class="lbl">${esc(t)}</span>${src ? `<img loading="lazy" src="${esc(src)}" data-alt="${esc(alt || '')}" alt="" onerror="noCover(this)">` : ''}
+      ${f.wl ? '<span class="wl" title="På din Letterboxd-watchlist">♥ LISTAN</span>' : ''}
       <span class="sticker ${a ? 'in' : 'out'}">${a ? (S.branch ? `${a} INNE` : 'INNE') : 'UTLÅNAD'}</span>
       ${f.tmdb?.rating ? `<span class="rate">★${f.tmdb.rating.toFixed(1)}</span>` : ''}</div>
     <h3>${esc(t)}</h3><div class="y">${[yearOf(f) || null, formatOf(f)].filter(Boolean).map(esc).join(' · ')}</div></a>`;
@@ -682,6 +703,7 @@ const SHELF_MAX = 40;
 const NEW_COUNT = 100;
 let newFrom = Infinity;
 const SHELVES = [
+  { t: '♥ Min watchlist', c: 'var(--green)', f: (x) => x.wl, sort: (a, b) => (availAt(b) > 0) - (availAt(a) > 0) || wr(b) - wr(a), more: { wl: true }, moreLabel: 'HELA LISTAN →' },
   { t: '★ Personalens favoriter', c: 'var(--yellow)', f: (x) => x.tmdb?.votes >= 300, sort: SORTS.rating },
   { t: '◆ Nyinkommet', c: 'var(--cyan)', f: (x) => x.added >= newFrom, sort: (a, b) => b.added - a.added },
   { t: '☠ Skräck', c: 'var(--red)', g: 'Skräck' },
@@ -701,6 +723,7 @@ function receipt(n) {
     S.age && ['ÅLDER', AGE_LABEL[S.age], { age: '' }],
     S.inne && ['', 'BARA INNE', { inne: false }],
     S.covers && ['', 'MED OMSLAG', { covers: false }],
+    S.wl && ['', 'MIN WATCHLIST', { wl: false }],
     S.person && [roleOf(S.person), PEOPLE.get(S.person).name, { person: '' }],
   ].filter(Boolean);
   const el = $('#receipt');
@@ -724,16 +747,16 @@ function render() {
       const all = list.filter(s.g ? (x) => x.genres.includes(s.g) : s.f);
       if (!all.length) return '';
       const l = all.sort(s.sort || SORTS[S.sort]).slice(0, SHELF_MAX);
-      return `<div class="aisle" style="--c:${s.c}"><h2>${s.t}</h2><span>${all.length} ST</span>${s.g ? `<button class="more" data-g="${esc(s.g)}">HELA GÅNGEN →</button>` : ''}</div>
+      return `<div class="aisle" style="--c:${s.c}"><h2>${s.t}</h2><span>${all.length} ST</span>${s.g ? `<button class="more" data-g="${esc(s.g)}">HELA GÅNGEN →</button>` : s.more ? `<button class="more" data-wl>${s.moreLabel}</button>` : ''}</div>
         <div class="shelf-wrap" style="--c:${s.c}"><button class="nav prev" aria-label="Bläddra bakåt">◀\uFE0E</button>
         <div class="shelf">${l.map(tape).join('')}</div><button class="nav next" aria-label="Bläddra framåt">▶\uFE0E</button></div><div class="board"></div>`;
     }).join('') || `<div class="empty"><b>TOMT PÅ HYLLAN</b>Inget inne här just nu.</div>`;
     main.querySelectorAll('.shelf-wrap').forEach(wireShelf);
-    main.querySelectorAll('.more').forEach((b) => b.onclick = () => { set({ genre: b.dataset.g }); $('#signs').scrollIntoView({ behavior: 'smooth' }); });
+    main.querySelectorAll('.more').forEach((b) => b.onclick = () => { set('wl' in b.dataset ? { wl: true } : { genre: b.dataset.g }); $('#signs').scrollIntoView({ behavior: 'smooth' }); });
     return;
   }
   const title = S.person ? `◆ ${roleOf(S.person)}: ${PEOPLE.get(S.person).name.toUpperCase()}`
-    : S.genre ? `${ICONS[S.genre] || '◆'} GÅNG: ${S.genre.toUpperCase()}` : S.q ? 'SÖKRESULTAT' : 'URVAL';
+    : S.genre ? `${ICONS[S.genre] || '◆'} GÅNG: ${S.genre.toUpperCase()}` : S.q ? 'SÖKRESULTAT' : S.wl ? '♥ MIN WATCHLIST' : 'URVAL';
   main.innerHTML = `<div class="wall-head"><h2>${esc(title)}</h2><span>${list.length.toLocaleString('sv')} BAND</span></div>` +
     (list.length ? `<div class="wall">${list.slice(0, shown).map(tape).join('')}</div>` +
       (shown < list.length ? `<div class="loadmore"><button class="btn y" id="moreBtn">▼ VISA ${Math.min(PAGE, list.length - shown)} TILL</button></div>` : '')
@@ -921,6 +944,107 @@ document.addEventListener('click', (e) => {
   e.preventDefault(); openDetail(films[t.dataset.i]);
 });
 
+// --- Letterboxd watchlist: import the export zip (or watchlist.csv), match on title + year. Lives only in this browser.
+// Letterboxd has no open API and blocks cross-site reads, so there's no live sync: re-import to refresh.
+// Stored as raw [name, year] rows and re-matched on every load, since the catalogue changes nightly.
+const WL_KEY = 'filmhyllan.watchlist.v1';
+let wl = null; // { at: ISO date, items: [[name, year], ...] }
+// same folding as enrich.mjs: no accents, articles or punctuation ("The Seventh Seal" = "Seventh seal")
+const fold = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/&/g, ' and ')
+  .replace(/\b(the|a|an|en|ett|den|det)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+function matchWatchlist() {
+  for (const f of films) f.wl = false;
+  if (!wl) return 0;
+  const idx = new Map();
+  for (const f of films) for (const t of new Set([f.tmdb?.tmdbTitle, ...(f.tmdb?.alt ?? []), f.title, f.originalTitle, f.variantTitle].map(fold))) {
+    if (t) (idx.get(t) ?? idx.set(t, []).get(t)).push(f);
+  }
+  // TMDb year is the film's; an unmatched record only has the disc year, which can lag the film by a few years
+  const yearOk = (f, y) => { const d = yearOf(f) - y; return f.tmdb ? Math.abs(d) <= 1 : d >= -1 && d <= 3; };
+  for (const [name, y] of wl.items) {
+    const c = idx.get(fold(name)) ?? [];
+    for (const f of y ? c.filter((f) => yearOk(f, y)) : c.length === 1 ? c : []) f.wl = true;
+  }
+  return films.filter((f) => f.wl).length;
+}
+function parseCsv(text) {
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c !== '"') cell += c; else if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+// minimal zip reader: walk the central directory, inflate one entry with the browser's DecompressionStream
+async function unzipEntry(buf, want) {
+  const v = new DataView(buf), dec = new TextDecoder();
+  let e = buf.byteLength - 22;
+  while (e >= 0 && v.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('Zip-filen går inte att läsa.');
+  let p = v.getUint32(e + 16, true);
+  for (let i = v.getUint16(e + 10, true); i > 0; i--) {
+    const method = v.getUint16(p + 10, true), size = v.getUint32(p + 20, true), off = v.getUint32(p + 42, true);
+    const nl = v.getUint16(p + 28, true), name = dec.decode(new Uint8Array(buf, p + 46, nl));
+    p += 46 + nl + v.getUint16(p + 30, true) + v.getUint16(p + 32, true);
+    if (!want(name)) continue;
+    const data = new Uint8Array(buf, off + 30 + v.getUint16(off + 26, true) + v.getUint16(off + 28, true), size);
+    if (method === 0) return dec.decode(data);
+    if (method === 8) return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+    throw new Error('Zip-filen använder en komprimering som inte stöds.');
+  }
+  return null;
+}
+async function importWatchlist(file) {
+  const st = $('#lbStatus');
+  st.classList.remove('err'); st.textContent = 'LÄSER BANDET…';
+  try {
+    if (file.size > 50e6) throw new Error('Filen är för stor.');
+    const buf = await file.arrayBuffer();
+    const zip = buf.byteLength > 4 && new DataView(buf).getUint32(0, true) === 0x04034b50;
+    // the full export also holds watched.csv, ratings.csv… and a deleted/ folder: take the live watchlist only
+    const text = zip ? await unzipEntry(buf, (n) => /(^|\/)watchlist\.csv$/i.test(n) && !/(^|\/)deleted\//i.test(n)) : new TextDecoder().decode(buf);
+    if (text == null) throw new Error('Hittar ingen watchlist.csv i zip-filen.');
+    const rows = parseCsv(text.replace(/^﻿/, ''));
+    const head = (rows[0] ?? []).map((h) => h.trim()), ni = head.indexOf('Name'), yi = head.indexOf('Year');
+    if (ni < 0 || yi < 0) throw new Error('Filen ser inte ut som en Letterboxd-watchlist.');
+    const items = rows.slice(1).filter((r) => r[ni]?.trim()).map((r) => [r[ni].trim(), parseInt(r[yi], 10) || 0]);
+    if (!items.length) throw new Error('Watchlisten är tom.');
+    wl = { at: new Date().toISOString(), items };
+    try { localStorage.setItem(WL_KEY, JSON.stringify(wl)); } catch {}
+    applyWatchlist(true);
+  } catch (err) {
+    st.classList.add('err'); st.textContent = (err.message || 'Kunde inte läsa filen.').toUpperCase();
+  }
+}
+function applyWatchlist(rerender) {
+  const n = matchWatchlist();
+  $('#wlChk').hidden = !wl; $('#lbClear').hidden = !wl;
+  const st = $('#lbStatus'); st.classList.remove('err');
+  st.textContent = wl ? `${wl.items.length} PÅ LISTAN · ${n} I BUTIKEN · IMPORTERAD ${new Date(wl.at).toLocaleDateString('sv')}` : '';
+  if (!wl && S.wl) S.wl = false;
+  if (rerender && branchSel) { syncControls(); render(); } // before boot, render() runs later anyway
+}
+function loadWatchlist() {
+  try {
+    const w = JSON.parse(localStorage.getItem(WL_KEY) || 'null');
+    if (Array.isArray(w?.items)) wl = { at: String(w.at), items: w.items.filter((r) => Array.isArray(r)).map(([n, y]) => [String(n), Number(y) || 0]) };
+  } catch {}
+  applyWatchlist(false);
+}
+{
+  const box = $('#lb');
+  $('#lbFile').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importWatchlist(f); };
+  $('#lbClear').onclick = () => { wl = null; try { localStorage.removeItem(WL_KEY); } catch {} applyWatchlist(true); };
+  box.addEventListener('dragover', (e) => { e.preventDefault(); box.classList.add('drag'); });
+  box.addEventListener('dragleave', () => box.classList.remove('drag'));
+  box.addEventListener('drop', (e) => { e.preventDefault(); box.classList.remove('drag'); const f = e.dataTransfer.files[0]; if (f) importWatchlist(f); });
+}
+
 // --- boot ------------------------------------------------------------------------------
 function boot(d) {
   // zero-copy records (withdrawn/lost) can't be borrowed: drop them after merging editions
@@ -941,6 +1065,7 @@ function boot(d) {
       ...['dir', 'cast'].flatMap((r) => (f.tmdb?.people?.[r] ?? []).map((p) => p[1]))].join(' '));
   });
   indexPeople();
+  loadWatchlist();
   newFrom = films.map((f) => f.added).sort((a, b) => b - a)[NEW_COUNT - 1] || Infinity;
   $('#open').textContent = `ÖPPET · ${films.length.toLocaleString('sv')} FILMER`;
   $('#foot').insertAdjacentText('afterbegin', `HYLLAN INVENTERAD ${new Date(d.fetchedAt).toLocaleString('sv').slice(0, 16)} · `);
@@ -971,6 +1096,7 @@ function boot(d) {
   $('#q').oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => set({ q: e.target.value.trim() }), 120); };
   $('#inne').onclick = () => set({ inne: !S.inne });
   $('#covers').onchange = (e) => set({ covers: e.target.checked });
+  $('#wl').onchange = (e) => set({ wl: e.target.checked });
   $('#sort').onclick = (e) => { const b = e.target.closest('button'); if (b) set({ sort: b.dataset.s }); };
   $('#home').onclick = () => set({ ...CLEAR, branch: S.branch, inne: S.inne }); // keep standing prefs
 

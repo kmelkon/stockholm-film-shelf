@@ -191,14 +191,16 @@ async function match(f) {
   const trailer = vids.find((v) => v.site === 'YouTube' && v.type === 'Trailer' && v.iso_639_1 === 'sv')
     ?? vids.find((v) => v.site === 'YouTube' && v.type === 'Trailer')
     ?? vids.find((v) => v.site === 'YouTube' && v.type === 'Teaser');
-  let overview = d?.overview;
-  if (!overview) overview = (await tmdb(`/${kind}/${best.r.id}`, { language: 'en-US' }))?.overview;
+  // English + original titles: Letterboxd watchlists use them, tmdbTitle is Swedish
+  const en = await tmdb(`/${kind}/${best.r.id}`, { language: 'en-US' });
+  const overview = d?.overview || en?.overview;
   return {
     matched: true,
     kind,
     score: Math.round(best.s * 100) / 100,
     id: best.r.id,
     tmdbTitle: kind === 'tv' ? d.name : d.title,
+    alt: altTitles(kind, d, en),
     released: (kind === 'tv' ? d.first_air_date : d.release_date) || null,
     rating: d.vote_average || null,
     votes: d.vote_count || 0,
@@ -211,6 +213,13 @@ async function match(f) {
     people: pickPeople(d),
   };
 }
+
+// other names for the same title (English, original), minus the Swedish one we already show
+const altTitles = (kind, d, en) => {
+  const t = kind === 'tv' ? [en?.name, d?.original_name] : [en?.title, d?.original_title];
+  const main = kind === 'tv' ? d?.name : d?.title;
+  return [...new Set(t.filter((x) => x && x !== main))];
+};
 
 // --- people (I7): director(s) + top-billed cast as [tmdbPersonId, name]; TV creators stand in for directors ---
 const CAST_MAX = 5;
@@ -313,6 +322,27 @@ await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
 }));
 if (noPeople.size) await writeFile(cacheUrl, JSON.stringify(cache));
 
+// Backfill alt titles (Letterboxd watchlist matching) for hits cached before they existed: one call per unique title, once.
+const noAlt = new Map();
+for (const f of data.films) {
+  const e = cache[f.key];
+  if (e?.matched && !e.alt) (noAlt.get(`${e.kind}:${e.id}`) ?? noAlt.set(`${e.kind}:${e.id}`, []).get(`${e.kind}:${e.id}`)).push(e);
+}
+const altQueue = [...noAlt.values()];
+let altFailed = 0;
+if (altQueue.length) console.log(`backfilling alt titles for ${altQueue.length} titles`);
+await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
+  while (altQueue.length) {
+    const es = altQueue.shift(), { kind, id } = es[0];
+    try { // en-US gives the English title, and original_* comes with any language
+      const en = await tmdb(`/${kind}/${id}`, { language: 'en-US' });
+      const alt = altTitles(kind, { name: es[0].tmdbTitle, title: es[0].tmdbTitle, original_name: en?.original_name, original_title: en?.original_title }, en);
+      for (const e of es) e.alt = alt;
+    } catch { altFailed++; } // retried next run: 'alt' stays unset
+  }
+}));
+if (noAlt.size) await writeFile(cacheUrl, JSON.stringify(cache));
+
 // Health check: many request failures usually means a bad/revoked key or TMDb outage.
 const MAX_FAIL_RATE = 0.05;
 if (todo.length && failed / todo.length > MAX_FAIL_RATE) {
@@ -328,4 +358,5 @@ const m = data.films.filter((f) => f.tmdb);
 console.log(`matched ${m.length}/${data.films.length} (${((100 * m.length) / data.films.length).toFixed(1)}%)`
   + ` | trailers ${m.filter((f) => f.tmdb.trailer).length} | ages ${m.filter((f) => f.tmdb.age != null).length}`
   + ` (SE ${m.filter((f) => f.tmdb.ageFrom === 'SE').length}) | failed ${failed} | age failed ${ageFailed}`
-  + ` | people ${m.filter((f) => f.tmdb.people).length} | people failed ${peopleFailed}`);
+  + ` | people ${m.filter((f) => f.tmdb.people).length} | people failed ${peopleFailed}`
+  + ` | alt ${m.filter((f) => f.tmdb.alt).length} | alt failed ${altFailed}`);
